@@ -1,0 +1,20 @@
+# Python
+backend/.env
+backend/.venv/
+backend/__pycache__/
+backend/*.pyc
+backend/images/
+
+# R
+*.Rhistory
+*.RData
+
+# Node
+frontend/mathboard/node_modules/
+frontend/mathboard/dist/
+
+# Dataset (too large for git)
+backend/data/
+
+# Brainstorming artifacts
+.superpowers/
