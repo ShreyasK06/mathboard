@@ -5,7 +5,7 @@ from fastapi import FastAPI, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from PIL import Image
 from dotenv import load_dotenv
-from google import genai
+import google.generativeai as genai
 
 load_dotenv()
 
@@ -20,7 +20,8 @@ app.add_middleware(
 )
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-client = genai.Client(api_key=GEMINI_API_KEY)
+genai.configure(api_key=GEMINI_API_KEY)
+model = genai.GenerativeModel("gemini-1.5-flash")
 
 R_API_URL = "http://localhost:8003/solve"
 
@@ -44,10 +45,7 @@ async def convert_equation(file: UploadFile = File(...)):
     )
 
     try:
-        response = client.models.generate_content(
-            model="gemini-1.5-flash",
-            contents=[prompt, img]
-        )
+        response = model.generate_content([prompt, img])
         latex_string = response.text.strip()
         print(f"[Gemini Result] Raw LaTeX: {latex_string}")
     except Exception as e:
