@@ -1,0 +1,296 @@
+.page {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    padding: 24px 8px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    min-height: 100vh;
+}
+
+h1 {
+    margin: 0 0 24px;
+    font-size: 2.8em;
+    font-weight: 700;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    letter-spacing: -0.5px;
+}
+
+.toolbar {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    margin-bottom: 16px;
+    background: white;
+    padding: 14px 20px;
+    border-radius: 12px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+    backdrop-filter: blur(10px);
+    width: 100%;
+    max-width: calc(100vw - 16px);
+}
+
+button {
+    padding: 12px 16px;
+    border: 2px solid #e0e0e0;
+    background: white;
+    color: #333;
+    border-radius: 10px;
+    cursor: pointer;
+    font-weight: 500;
+    font-size: 14px;
+    transition: all 200ms ease;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+button:hover {
+    background: #f5f5f5;
+    border-color: #667eea;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.15);
+}
+
+button:active {
+    transform: translateY(0);
+}
+
+button:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    transform: none;
+}
+
+button.primary {
+    border: 2px solid #667eea;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+}
+
+button.primary:hover {
+    border-color: #764ba2;
+    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.3);
+}
+
+.toolGroup {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.toolGroup button.active {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border-color: #667eea;
+}
+
+.toolGroup .eraser-btn.active {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border-color: #667eea;
+}
+
+.boardWrap {
+    width: calc(100vw - 16px);
+    max-width: calc(100vw - 16px);
+    border: 2px solid #e8e8e8;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.12);
+    background: white;
+}
+
+.board {
+    width: 100%;
+    height: 520px;
+    display: block;
+    touch-action: none;
+    background: white;
+    cursor: crosshair;
+}
+
+.hint {
+    color: #666;
+    margin-top: 20px;
+    text-align: center;
+    font-size: 14px;
+    background: rgba(255, 255, 255, 0.8);
+    padding: 12px 20px;
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.control {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    border-radius: 10px;
+    border: 2px solid #e0e0e0;
+    font-size: 13px;
+    background: #f9f9f9;
+    color: #333;
+    font-weight: 500;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.control input[type="range"] {
+    width: 120px;
+    margin: 0 8px;
+    accent-color: #667eea;
+}
+
+.control input[type="color"] {
+    width: 40px;
+    height: 32px;
+    padding: 2px;
+    border-radius: 8px;
+    border: 2px solid #e0e0e0;
+    background: #fff;
+    -webkit-appearance: none;
+    appearance: none;
+    cursor: pointer;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+    transition: transform 150ms ease;
+}
+
+.control input[type="color"]:hover {
+    transform: scale(1.05);
+}
+
+.control input[type="color"]::-webkit-color-swatch-wrapper {
+    padding: 0;
+}
+
+.control input[type="color"]::-webkit-color-swatch {
+    border: none;
+    border-radius: 6px;
+}
+
+.control input[type="color"]:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.value {
+    min-width: 48px;
+    text-align: right;
+    color: #667eea;
+    font-weight: 700;
+}
+
+.divider {
+    width: 1px;
+    height: 36px;
+    background: linear-gradient(180deg, transparent 0%, #ddd 50%, transparent 100%);
+    border-radius: 2px;
+    margin: 0 8px;
+}
+
+/* Nav tabs */
+.nav-tabs {
+    display: flex;
+    gap: 4px;
+    padding: 0;
+    margin-bottom: 20px;
+    border-bottom: 2px solid #e8e8e8;
+    width: 100%;
+    max-width: calc(100vw - 16px);
+}
+
+.nav-tab {
+    padding: 10px 28px;
+    border: 2px solid transparent;
+    border-bottom: none;
+    background: #f5f5f5;
+    color: #666;
+    border-radius: 8px 8px 0 0;
+    cursor: pointer;
+    font-weight: 500;
+    font-size: 14px;
+    transition: all 200ms ease;
+    box-shadow: none;
+}
+
+.nav-tab:hover {
+    background: #ededff;
+    color: #667eea;
+    transform: none;
+    box-shadow: none;
+    border-color: transparent;
+}
+
+.nav-tab.active {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border-color: #667eea;
+    box-shadow: 0 -2px 8px rgba(102, 126, 234, 0.2);
+}
+
+/* Results panel */
+.results-panel {
+    width: calc(100vw - 16px);
+    max-width: calc(100vw - 16px);
+    background: white;
+    border: 2px solid #e8e8e8;
+    border-radius: 12px;
+    padding: 20px 28px;
+    margin-top: 16px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
+}
+
+.results-panel h3 {
+    margin: 0 0 10px;
+    font-size: 0.75em;
+    font-weight: 700;
+    color: #999;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+}
+
+.latex-display {
+    background: #f8f7ff;
+    border: 1px solid #e0deff;
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 20px;
+    text-align: center;
+    overflow-x: auto;
+    font-size: 1.2em;
+}
+
+.solution-display {
+    font-size: 1.1em;
+    color: #2d7a5e;
+    font-weight: 600;
+}
+
+.error-display {
+    color: #c0392b;
+    background: #fdf3f2;
+    border: 1px solid #f5c6c3;
+    border-radius: 8px;
+    padding: 14px 16px;
+}
+
+.loading-spinner {
+    text-align: center;
+    color: #667eea;
+    padding: 16px;
+    font-style: italic;
+}
+
+/* Dataset Explorer iframe */
+.explorer-frame {
+    width: calc(100vw - 16px);
+    height: calc(100vh - 160px);
+    border: 2px solid #e8e8e8;
+    border-radius: 12px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.12);
+}
