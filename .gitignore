@@ -18,3 +18,16 @@ backend/data/
 
 # Brainstorming artifacts
 .superpowers/
+
+# IDE
+.vscode/
+.idea/
+.Rproj.user/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test / cache artifacts
+.pytest_cache/
+backend/.coverage
