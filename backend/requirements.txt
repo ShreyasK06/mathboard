@@ -1,9 +1,9 @@
 fastapi
 uvicorn
 python-multipart
-requests
-Pillow
-google-generativeai
+google-genai
 python-dotenv
+sympy
+Pillow
 pytest
 httpx
