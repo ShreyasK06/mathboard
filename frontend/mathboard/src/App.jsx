@@ -1,222 +1,371 @@
-import { useEffect, useRef, useState } from "react";
-import "./App.css";
+import { useCallback, useEffect, useRef, useState } from "react";
 import katex from "katex";
 import "katex/dist/katex.min.css";
+import "./App.css";
+
+const BACKEND_URL = "http://127.0.0.1:8000";
+const SHINY_URL = "http://localhost:3838";
 
 export default function App() {
+  // ---------------------------------------------------------------------
+  // Backend health
+  // ---------------------------------------------------------------------
+  const [backendStatus, setBackendStatus] = useState("checking"); // checking | up | down
+  const [geminiKeySet, setGeminiKeySet] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const check = async () => {
+      try {
+        const res = await fetch(`${BACKEND_URL}/health`, { cache: "no-store" });
+        if (!res.ok) throw new Error(`status ${res.status}`);
+        const data = await res.json();
+        if (cancelled) return;
+        setBackendStatus("up");
+        setGeminiKeySet(Boolean(data.gemini_key_set));
+      } catch {
+        if (cancelled) return;
+        setBackendStatus("down");
+      }
+    };
+
+    check();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // ---------------------------------------------------------------------
+  // Tabs
+  // ---------------------------------------------------------------------
+  const [activeTab, setActiveTab] = useState("solver"); // "solver" | "explorer"
+
+  // ---------------------------------------------------------------------
+  // Canvas / drawing state
+  // ---------------------------------------------------------------------
   const canvasRef = useRef(null);
   const ctxRef = useRef(null);
   const dprRef = useRef(1);
 
-  const [isDrawing, setIsDrawing] = useState(false);
-
-  // Drawing controls
-  const [penSize, setPenSize] = useState(6);
-  const [eraserSize, setEraserSize] = useState(20);
-  const [penColor, setPenColor] = useState("#000000");
   const [tool, setTool] = useState("pen"); // "pen" | "eraser"
+  const [penSize, setPenSize] = useState(6);
+  const [eraserSize, setEraserSize] = useState(24);
+  const [penColor, setPenColor] = useState("#111111");
 
-  // History for undo/redo
-  const [history, setHistory] = useState([]);
-  const [historyIndex, setHistoryIndex] = useState(-1);
+  const isDrawingRef = useRef(false);
 
-  // Tab navigation
-  const [activeTab, setActiveTab] = useState("solver"); // "solver" | "explorer"
+  // Undo/redo: snapshots of the canvas as data URLs
+  const historyRef = useRef([]);
+  const historyIndexRef = useRef(-1);
+  const [historyTick, setHistoryTick] = useState(0); // force re-render for disabled state
 
-  // Conversion result state
-  const [isLoading, setIsLoading] = useState(false);
-  const [result, setResult] = useState(null); // { latex, solution }
-  const [resultError, setResultError] = useState(null);
-
-  useEffect(() => {
+  const clearToWhite = useCallback(() => {
     const canvas = canvasRef.current;
-    const ctx = canvas.getContext("2d", { willReadFrequently: true });
-
-    const dpr = window.devicePixelRatio || 1;
-    dprRef.current = dpr;
-    const rect = canvas.getBoundingClientRect();
-
-    canvas.style.width = rect.width + "px";
-    canvas.style.height = rect.height + "px";
-
-    canvas.width = Math.floor(rect.width * dpr);
-    canvas.height = Math.floor(rect.height * dpr);
-
-    ctx.fillStyle = "white";
+    const ctx = ctxRef.current;
+    if (!canvas || !ctx) return;
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    ctx.lineCap = "round";
-    ctx.lineJoin = "round";
-    ctx.strokeStyle = penColor;
-    ctx.lineWidth = penSize;
-
-    ctxRef.current = ctx;
-
-    saveToHistory(ctx);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    ctx.restore();
   }, []);
 
+  const snapshot = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const dataUrl = canvas.toDataURL("image/png");
+    const nextHistory = historyRef.current.slice(0, historyIndexRef.current + 1);
+    nextHistory.push(dataUrl);
+    // Cap history to avoid runaway memory use
+    if (nextHistory.length > 50) nextHistory.shift();
+    historyRef.current = nextHistory;
+    historyIndexRef.current = nextHistory.length - 1;
+    setHistoryTick((t) => t + 1);
+  }, []);
+
+  const restoreIndex = useCallback((index) => {
+    const canvas = canvasRef.current;
+    const ctx = ctxRef.current;
+    if (!canvas || !ctx) return;
+    const dataUrl = historyRef.current[index];
+    if (!dataUrl) return;
+    const img = new Image();
+    img.onload = () => {
+      ctx.save();
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      ctx.restore();
+    };
+    img.src = dataUrl;
+  }, []);
+
+  // Initial canvas setup + resize handling
+  useEffect(() => {
+    if (activeTab !== "solver") return undefined;
+
+    const canvas = canvasRef.current;
+    if (!canvas) return undefined;
+
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    ctxRef.current = ctx;
+
+    const setupCanvas = (preserve = true) => {
+      const dpr = window.devicePixelRatio || 1;
+      dprRef.current = dpr;
+
+      const rect = canvas.getBoundingClientRect();
+      const cssWidth = rect.width;
+      const cssHeight = rect.height;
+
+      // Grab existing pixels so a resize doesn't wipe the drawing
+      let previous = null;
+      if (preserve && canvas.width > 0 && canvas.height > 0) {
+        try {
+          previous = canvas.toDataURL("image/png");
+        } catch {
+          previous = null;
+        }
+      }
+
+      canvas.width = Math.floor(cssWidth * dpr);
+      canvas.height = Math.floor(cssHeight * dpr);
+
+      // Reset transforms, then scale so we can draw in CSS pixel coords.
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.scale(dpr, dpr);
+
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.strokeStyle = penColor;
+      ctx.lineWidth = penSize;
+
+      if (previous) {
+        const img = new Image();
+        img.onload = () => {
+          ctx.save();
+          ctx.setTransform(1, 0, 0, 1, 0, 0);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          ctx.restore();
+        };
+        img.src = previous;
+      }
+    };
+
+    setupCanvas(false);
+
+    // Seed history with the blank canvas
+    if (historyRef.current.length === 0) {
+      snapshot();
+    }
+
+    const onResize = () => setupCanvas(true);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
+
+  // Sync tool/size/color into the context
   useEffect(() => {
     const ctx = ctxRef.current;
     if (!ctx) return;
-
-    const currentSize = tool === "eraser" ? eraserSize : penSize;
-    ctx.lineWidth = currentSize;
-
     if (tool === "eraser") {
       ctx.globalCompositeOperation = "source-over";
-      ctx.strokeStyle = "#FFFFFF";
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = eraserSize;
     } else {
       ctx.globalCompositeOperation = "source-over";
       ctx.strokeStyle = penColor;
+      ctx.lineWidth = penSize;
     }
-  }, [penSize, eraserSize, penColor, tool]);
+  }, [tool, penSize, eraserSize, penColor]);
 
+  // Event handlers
   const getPos = (e) => {
     const canvas = canvasRef.current;
     const rect = canvas.getBoundingClientRect();
-    const dpr = dprRef.current || 1;
+    // After ctx.scale(dpr, dpr) we draw in CSS pixels, so no DPR multiply here.
     return {
-      x: (e.clientX - rect.left) * dpr,
-      y: (e.clientY - rect.top) * dpr,
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
     };
-  };
-
-  const saveToHistory = (ctxOverride) => {
-    const canvas = canvasRef.current;
-    const ctx = ctxOverride ?? ctxRef.current;
-    if (!canvas || !ctx) return;
-
-    const dataUrl = canvas.toDataURL("image/png");
-
-    setHistory((prev) => {
-      const next = prev.slice(0, historyIndex + 1);
-      next.push(dataUrl);
-      return next;
-    });
-    setHistoryIndex((prev) => prev + 1);
-  };
-
-  const restoreFromHistory = (index) => {
-    const canvas = canvasRef.current;
-    const ctx = ctxRef.current;
-
-    const img = new Image();
-    img.onload = () => {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = "white";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-    };
-    img.src = history[index];
   };
 
   const handlePointerDown = (e) => {
     e.preventDefault();
     const ctx = ctxRef.current;
     if (!ctx) return;
-
-    e.currentTarget.setPointerCapture(e.pointerId);
-
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      /* some browsers throw if capture already taken */
+    }
     const { x, y } = getPos(e);
     ctx.beginPath();
     ctx.moveTo(x, y);
-    setIsDrawing(true);
+    // Dot on tap
+    ctx.lineTo(x + 0.01, y + 0.01);
+    ctx.stroke();
+    isDrawingRef.current = true;
   };
 
   const handlePointerMove = (e) => {
-    if (!isDrawing) return;
+    if (!isDrawingRef.current) return;
     e.preventDefault();
-
     const ctx = ctxRef.current;
     if (!ctx) return;
-
     const { x, y } = getPos(e);
     ctx.lineTo(x, y);
     ctx.stroke();
   };
 
   const handlePointerUp = (e) => {
-    if (!isDrawing) return;
+    if (!isDrawingRef.current) return;
     e.preventDefault();
-    setIsDrawing(false);
-    saveToHistory();
+    isDrawingRef.current = false;
+    snapshot();
   };
 
   const clearCanvas = () => {
-    const canvas = canvasRef.current;
-    const ctx = ctxRef.current;
-    if (!canvas || !ctx) return;
-
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.fillStyle = "white";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    saveToHistory();
+    clearToWhite();
+    snapshot();
   };
 
   const undo = () => {
-    if (historyIndex <= 0) return;
-    const newIndex = historyIndex - 1;
-    setHistoryIndex(newIndex);
-    restoreFromHistory(newIndex);
+    if (historyIndexRef.current <= 0) return;
+    historyIndexRef.current -= 1;
+    restoreIndex(historyIndexRef.current);
+    setHistoryTick((t) => t + 1);
   };
 
   const redo = () => {
-    if (historyIndex >= history.length - 1) return;
-    const newIndex = historyIndex + 1;
-    setHistoryIndex(newIndex);
-    restoreFromHistory(newIndex);
+    if (historyIndexRef.current >= historyRef.current.length - 1) return;
+    historyIndexRef.current += 1;
+    restoreIndex(historyIndexRef.current);
+    setHistoryTick((t) => t + 1);
   };
+
+  const canUndo = historyIndexRef.current > 0;
+  const canRedo = historyIndexRef.current < historyRef.current.length - 1;
+  // eslint-disable-next-line no-unused-vars
+  const _tickForUndoRedo = historyTick; // just to keep React reading the ref
+
+  // ---------------------------------------------------------------------
+  // Convert
+  // ---------------------------------------------------------------------
+  const [isLoading, setIsLoading] = useState(false);
+  const [convertResult, setConvertResult] = useState(null); // { latex, solution, yacasParsed }
+  const [convertError, setConvertError] = useState(null);
+  const [hasConverted, setHasConverted] = useState(false);
 
   const handleConvert = async () => {
     const canvas = canvasRef.current;
+    if (!canvas) return;
+
     setIsLoading(true);
-    setResult(null);
-    setResultError(null);
+    setConvertResult(null);
+    setConvertError(null);
+    setHasConverted(true);
 
     try {
-      const blob = await new Promise((resolve) =>
-        canvas.toBlob(resolve, "image/png")
-      );
-      const formData = new FormData();
-      formData.append("file", blob);
+      const blob = await new Promise((resolve, reject) => {
+        canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("Could not capture canvas"))), "image/png");
+      });
 
-      const res = await fetch("http://127.0.0.1:8000/convert", {
+      const formData = new FormData();
+      formData.append("file", blob, "board.png");
+
+      const res = await fetch(`${BACKEND_URL}/convert`, {
         method: "POST",
         body: formData,
       });
 
-      if (!res.ok) throw new Error(`Server error: ${res.status}`);
+      let data;
+      try {
+        data = await res.json();
+      } catch {
+        throw new Error(`Backend returned a non-JSON response (HTTP ${res.status}).`);
+      }
 
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
+      if (!res.ok && !data?.error) {
+        throw new Error(`Backend error: HTTP ${res.status}`);
+      }
 
+      if (data.error) {
+        setConvertError(data.error);
+        return;
+      }
+
+      const solData = data.solution_data || {};
       const solutionText =
-        data.solution_data?.solution ||
-        data.solution_data?.error ||
-        "No solution returned";
+        solData.solution ||
+        solData.error ||
+        "No solution returned.";
 
-      setResult({ latex: data.latex, solution: solutionText });
+      setConvertResult({
+        latex: data.latex || "",
+        solution: solutionText,
+        isSolutionError: Boolean(solData.error),
+        operationLabel: solData.operation_label || "",
+        steps: solData.steps || [],
+        latexResult: solData.latex_result || "",
+      });
     } catch (err) {
-      setResultError(err.message);
+      const isNetwork =
+        err instanceof TypeError || /failed to fetch|networkerror/i.test(err.message);
+      setConvertError(
+        isNetwork
+          ? `Could not reach the backend at ${BACKEND_URL}. Start it with: cd backend && .venv/Scripts/python -m uvicorn main:app --reload`
+          : err.message
+      );
     } finally {
       setIsLoading(false);
     }
   };
 
+  // ---------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------
   return (
     <div className="page">
-      <h1>MathBoard</h1>
+      <header className="page-header">
+        <h1>MathBoard</h1>
+        <p className="subtitle">Draw math. Let Gemini read it. Let R solve it.</p>
+      </header>
 
-      <nav className="nav-tabs">
+      {backendStatus === "down" && (
+        <div className="banner-error" role="alert">
+          <strong>Backend offline.</strong> Could not reach {BACKEND_URL}.
+          Start it with: <code>cd backend &amp;&amp; .venv/Scripts/python -m uvicorn main:app --reload</code>
+        </div>
+      )}
+
+      {backendStatus === "up" && !geminiKeySet && (
+        <div className="banner-warn" role="alert">
+          <strong>Gemini API key missing.</strong> Add{" "}
+          <code>GEMINI_API_KEY=...</code> to <code>backend/.env</code> and restart the backend.
+        </div>
+      )}
+
+      <nav className="nav-tabs" role="tablist">
         <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "solver"}
           className={`nav-tab ${activeTab === "solver" ? "active" : ""}`}
           onClick={() => setActiveTab("solver")}
         >
           Math Solver
         </button>
         <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "explorer"}
           className={`nav-tab ${activeTab === "explorer" ? "active" : ""}`}
           onClick={() => setActiveTab("explorer")}
         >
@@ -225,77 +374,69 @@ export default function App() {
       </nav>
 
       {activeTab === "solver" && (
-        <>
+        <section className="solver">
           <div className="toolbar">
-            <button onClick={undo} disabled={historyIndex <= 0}>
-              Undo
-            </button>
-            <button onClick={redo} disabled={historyIndex >= history.length - 1}>
-              Redo
-            </button>
-            <button onClick={clearCanvas}>Clear</button>
-
-            <div className="divider" />
-
-            <div className="toolGroup">
+            <div className="tool-group">
               <button
-                className={tool === "pen" ? "active" : ""}
+                type="button"
+                className={tool === "pen" ? "tool-btn active" : "tool-btn"}
                 onClick={() => setTool("pen")}
               >
                 Pen
               </button>
               <button
-                className={`${tool === "eraser" ? "active" : ""} eraser-btn`}
+                type="button"
+                className={tool === "eraser" ? "tool-btn active" : "tool-btn"}
                 onClick={() => setTool("eraser")}
               >
                 Eraser
               </button>
             </div>
 
-            <div className="divider" />
-
             <label className="control">
-              Thickness
+              <span>Thickness</span>
               <input
                 type="range"
                 min="1"
-                max="30"
+                max="40"
                 value={tool === "eraser" ? eraserSize : penSize}
                 onChange={(e) => {
-                  const newSize = Number(e.target.value);
-                  if (tool === "eraser") setEraserSize(newSize);
-                  else setPenSize(newSize);
+                  const v = Number(e.target.value);
+                  if (tool === "eraser") setEraserSize(v);
+                  else setPenSize(v);
                 }}
               />
-              <span className="value">
-                {tool === "eraser" ? eraserSize : penSize}px
-              </span>
+              <span className="value">{tool === "eraser" ? eraserSize : penSize}px</span>
             </label>
 
             <label className="control">
-              Color
+              <span>Color</span>
               <input
                 type="color"
                 value={penColor}
                 onChange={(e) => {
                   setPenColor(e.target.value);
-                  setTool("pen");
+                  if (tool !== "pen") setTool("pen");
                 }}
                 disabled={tool === "eraser"}
-                title={tool === "eraser" ? "Switch to Pen to change color" : ""}
+                title={tool === "eraser" ? "Switch to Pen to pick a color" : "Pick pen color"}
               />
             </label>
 
-            <button
-              className="primary"
-              onClick={handleConvert}
-              disabled={isLoading}
-            >
-              {isLoading ? "Converting…" : "Convert"}
-            </button>
+            <div className="tool-group">
+              <button type="button" className="tool-btn" onClick={undo} disabled={!canUndo}>
+                Undo
+              </button>
+              <button type="button" className="tool-btn" onClick={redo} disabled={!canRedo}>
+                Redo
+              </button>
+              <button type="button" className="tool-btn danger" onClick={clearCanvas}>
+                Clear
+              </button>
+            </div>
           </div>
 
-          <div className="boardWrap">
+          <div className="board-wrap">
             <canvas
               ref={canvasRef}
               className="board"
@@ -307,43 +448,97 @@ export default function App() {
             />
           </div>
 
-          {isLoading && (
-            <div className="results-panel">
-              <div className="loading-spinner">Recognizing and solving…</div>
-            </div>
-          )}
+          <button
+            type="button"
+            className="convert-btn"
+            onClick={handleConvert}
+            disabled={isLoading || backendStatus === "down"}
+          >
+            {isLoading ? "Recognizing..." : "Convert"}
+          </button>
 
-          {resultError && (
-            <div className="results-panel">
-              <div className="error-display">Error: {resultError}</div>
-            </div>
-          )}
+          {hasConverted && (
+            <div className="results">
+              {isLoading && (
+                <div className="loading-row">
+                  <div className="spinner" aria-hidden="true" />
+                  <span>Recognizing handwriting...</span>
+                </div>
+              )}
 
-          {result && (
-            <div className="results-panel">
-              <h3>LaTeX</h3>
-              <div
-                className="latex-display"
-                dangerouslySetInnerHTML={{
-                  __html: katex.renderToString(result.latex, {
-                    throwOnError: false,
-                    displayMode: true,
-                  }),
-                }}
-              />
-              <h3>Solution</h3>
-              <div className="solution-display">{result.solution}</div>
+              {!isLoading && convertError && (
+                <div className="result-error" role="alert">
+                  <div className="result-error-title">Could not convert</div>
+                  <div className="result-error-body">{convertError}</div>
+                </div>
+              )}
+
+              {!isLoading && convertResult && (
+                <div className="result-success">
+                  <h3 className="result-label">Recognized LaTeX</h3>
+                  <div
+                    className="latex-box"
+                    dangerouslySetInnerHTML={{
+                      __html: katex.renderToString(convertResult.latex || "\\,", {
+                        throwOnError: false,
+                        displayMode: true,
+                      }),
+                    }}
+                  />
+                  <div className="latex-raw">
+                    <code>{convertResult.latex}</code>
+                  </div>
+
+                  {convertResult.operationLabel && (
+                    <div className="operation-badge">{convertResult.operationLabel}</div>
+                  )}
+
+                  {convertResult.steps && convertResult.steps.length > 0 && (
+                    <details className="steps-details">
+                      <summary className="steps-summary">
+                        Steps ({convertResult.steps.length})
+                      </summary>
+                      <ol className="steps-list">
+                        {convertResult.steps.map((step, i) => (
+                          <li key={i}>{step}</li>
+                        ))}
+                      </ol>
+                    </details>
+                  )}
+
+                  <h3 className="result-label">Solution</h3>
+                  {convertResult.isSolutionError ? (
+                    <div className="result-error">
+                      <div className="result-error-body">{convertResult.solution}</div>
+                    </div>
+                  ) : convertResult.latexResult ? (
+                    <div
+                      className="latex-box solution-box"
+                      dangerouslySetInnerHTML={{
+                        __html: katex.renderToString(convertResult.latexResult, {
+                          throwOnError: false,
+                          displayMode: true,
+                        }),
+                      }}
+                    />
+                  ) : (
+                    <div className="solution-text">{convertResult.solution}</div>
+                  )}
+                </div>
+              )}
             </div>
           )}
-        </>
+        </section>
       )}
 
       {activeTab === "explorer" && (
-        <iframe
-          src="http://localhost:3838"
-          className="explorer-frame"
-          title="HASYv2 Dataset Explorer"
-        />
+        <section className="explorer">
+          <iframe
+            className="explorer-frame"
+            src={SHINY_URL}
+            title="HASYv2 Dataset Explorer"
+          />
+        </section>
       )}
     </div>
   );
