@@ -1,4 +1,3 @@
-import pytest
 from solver import detect_operation, solve_expression
 
 
@@ -110,10 +109,20 @@ def test_integrate_operation_label():
     assert result["operation_label"] == "Integrating"
 
 
+# ── limit ─────────────────────────────────────────────────────────────────────
+
+def test_limit_basic():
+    result = solve_expression(r"\lim_{x \to 0} x")
+    assert result["status"] == "success"
+    assert result["operation"] == "limit"
+    assert "0" in result["solution"]
+
+
 # ── error / timeout ───────────────────────────────────────────────────────────
 
 def test_failed_result_has_error_key():
     result = solve_expression(r"\completely_invalid{{{garbage}}}")
+    assert result["status"] in ("success", "failed")
     if result["status"] == "failed":
         assert "error" in result
 
