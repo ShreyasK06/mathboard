@@ -1,71 +1,110 @@
-import os
 import io
-import sys
+from unittest.mock import MagicMock, patch
 
-os.environ.setdefault("GEMINI_API_KEY", "test-fake-key")
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from main import app
+import main
 
-client = TestClient(app)
+_client = TestClient(main.app)
+
+_MOCK_SOLVER_RESULT = {
+    "status": "success",
+    "operation": "simplify",
+    "operation_label": "Simplifying",
+    "steps": ["Simplifying expression", "Applied SymPy simplification rules"],
+    "solution": "x**2 + 1",
+    "latex_result": "x^{2} + 1",
+}
 
 
-def _make_png_bytes():
-    img = Image.new("RGB", (50, 50), color="white")
+def _png_bytes() -> bytes:
     buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    buf.seek(0)
-    return buf
+    Image.new("RGB", (100, 100), color="white").save(buf, format="PNG")
+    return buf.getvalue()
 
 
-def test_convert_returns_latex_and_solution():
+def test_health_returns_ok():
+    resp = _client.get("/health")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "ok"
+    assert "gemini_key_set" in data
+    assert "gemini_model" in data
+
+
+def test_health_has_no_r_url():
+    resp = _client.get("/health")
+    assert "r_url" not in resp.json()
+
+
+def test_convert_returns_error_when_image_empty():
+    resp = _client.post("/convert", files={"file": ("b.png", b"", "image/png")})
+    assert resp.status_code == 200
+    assert "error" in resp.json()
+
+
+def test_convert_happy_path():
     mock_response = MagicMock()
     mock_response.text = "x^2 + 1"
 
-    mock_r = MagicMock()
-    mock_r.status_code = 200
-    mock_r.json.return_value = {"solution": "x^2+1", "status": "success"}
-    mock_r.raise_for_status = MagicMock()
+    with patch.object(main._client.models, "generate_content", return_value=mock_response), \
+         patch.object(main.solver, "solve_expression", return_value=_MOCK_SOLVER_RESULT):
+        resp = _client.post("/convert", files={"file": ("b.png", _png_bytes(), "image/png")})
 
-    with patch("main.client.models.generate_content", return_value=mock_response), \
-         patch("main.requests.post", return_value=mock_r):
-        response = client.post(
-            "/convert",
-            files={"file": ("test.png", _make_png_bytes(), "image/png")},
-        )
-
-    assert response.status_code == 200
-    data = response.json()
+    assert resp.status_code == 200
+    data = resp.json()
     assert data["status"] == "success"
     assert data["latex"] == "x^2 + 1"
-    assert "solution_data" in data
+    sd = data["solution_data"]
+    assert sd["operation"] == "simplify"
+    assert sd["operation_label"] == "Simplifying"
+    assert isinstance(sd["steps"], list)
+    assert sd["latex_result"] == "x^{2} + 1"
 
 
-def test_convert_returns_error_on_invalid_image():
-    response = client.post(
-        "/convert",
-        files={"file": ("bad.png", io.BytesIO(b"not an image"), "image/png")},
-    )
-    assert response.status_code == 200
-    data = response.json()
-    assert "error" in data
-
-
-def test_convert_handles_r_offline():
+def test_convert_gemini_empty_text_returns_error():
     mock_response = MagicMock()
-    mock_response.text = "x + 1"
+    mock_response.text = ""
 
-    with patch("main.client.models.generate_content", return_value=mock_response), \
-         patch("main.requests.post", side_effect=Exception("Connection refused")):
-        response = client.post(
-            "/convert",
-            files={"file": ("test.png", _make_png_bytes(), "image/png")},
-        )
+    with patch.object(main._client.models, "generate_content", return_value=mock_response):
+        resp = _client.post("/convert", files={"file": ("b.png", _png_bytes(), "image/png")})
 
-    assert response.status_code == 200
-    data = response.json()
-    assert "error" in data["solution_data"]
+    assert resp.status_code == 200
+    assert "error" in resp.json()
+
+
+def test_convert_gemini_exception_classified():
+    with patch.object(
+        main._client.models,
+        "generate_content",
+        side_effect=Exception("429 quota exceeded"),
+    ):
+        resp = _client.post("/convert", files={"file": ("b.png", _png_bytes(), "image/png")})
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "error" in data
+    assert "quota" in data["error"].lower() or "rate" in data["error"].lower()
+
+
+def test_convert_solution_data_has_operation_label():
+    mock_response = MagicMock()
+    mock_response.text = "x + 2 = 5"
+
+    solve_result = {
+        "status": "success",
+        "operation": "solve",
+        "operation_label": "Solving equation",
+        "steps": ["Detected equation", "Solving for x"],
+        "solution": "3",
+        "latex_result": "3",
+    }
+
+    with patch.object(main._client.models, "generate_content", return_value=mock_response), \
+         patch.object(main.solver, "solve_expression", return_value=solve_result):
+        resp = _client.post("/convert", files={"file": ("b.png", _png_bytes(), "image/png")})
+
+    data = resp.json()
+    assert data["solution_data"]["operation_label"] == "Solving equation"
+    assert data["solution_data"]["steps"] == ["Detected equation", "Solving for x"]
