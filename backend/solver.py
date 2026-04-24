@@ -60,7 +60,7 @@ def _parse(latex: str) -> sympy.Expr:
 
 
 def detect_operation(latex: str) -> str:
-    if "=" in latex:
+    if re.search(r'(?<![<>!\\])=(?!=)', latex):
         return "solve"
     if r"\int" in latex:
         return "integrate"
@@ -101,17 +101,17 @@ def _do_integrate(latex: str, steps: list[str]) -> tuple[str, str]:
     if limits_m:
         a_str, b_str, body = limits_m.groups()
         steps.append(f"Definite integral from {a_str.strip()} to {b_str.strip()}")
-        var_m = re.search(r"\s*d([a-z])\s*$", body)
+        var_m = re.search(r"(?:\\,)?\s*d([a-z])\s*$", body)
         var = sympy.Symbol(var_m.group(1)) if var_m else _x
-        expr_str = re.sub(r"\s*d[a-z]\s*$", "", body).strip()
+        expr_str = re.sub(r"(?:\\,)?\s*d[a-z]\s*$", "", body).strip()
         expr = _parse(expr_str)
         a, b = _parse(a_str.strip()), _parse(b_str.strip())
         steps.append(f"Integrating {sympy.latex(expr)} w.r.t. {var} from {a} to {b}")
         result = sympy.simplify(sympy.integrate(expr, (var, a, b)))
     else:
-        var_m = re.search(r"\s*d([a-z])\s*$", body)
+        var_m = re.search(r"(?:\\,)?\s*d([a-z])\s*$", body)
         var = sympy.Symbol(var_m.group(1)) if var_m else _x
-        expr_str = re.sub(r"\s*d[a-z]\s*$", "", body).strip()
+        expr_str = re.sub(r"(?:\\,)?\s*d[a-z]\s*$", "", body).strip()
         steps.append(f"Indefinite integral with respect to {var}")
         expr = _parse(expr_str)
         steps.append(f"Integrating {sympy.latex(expr)}")
