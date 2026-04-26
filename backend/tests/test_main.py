@@ -177,3 +177,106 @@ def test_convert_falls_back_when_classifier_disabled():
 
     assert resp.json()["source"] == "gemini"
     assert resp.json()["confidence"] is None
+
+
+from ryacas_client import RyacasResult
+
+
+def test_convert_includes_ryacas_when_available():
+    """When Plumber is reachable and agrees with SymPy, response has agreement='match'."""
+    mock_response = MagicMock()
+    mock_response.text = "x + 5 = 12"
+
+    sympy_result = {
+        "status": "success", "operation": "solve", "operation_label": "Solving equation",
+        "steps": [], "solution": "7", "latex_result": "7",
+    }
+    ryacas_result = RyacasResult(status="success", solution="7", latex_result="7", error=None)
+
+    class FakeClassifier:
+        def is_loaded(self): return False
+        def classify(self, _): return None
+
+    with patch.object(main, "classifier", FakeClassifier()), \
+         patch.object(main._client.models, "generate_content", return_value=mock_response), \
+         patch.object(main.solver, "solve_expression", return_value=sympy_result), \
+         patch.object(main.ryacas_client, "cross_solve", return_value=ryacas_result):
+        resp = _client.post("/convert", files={"file": ("b.png", _png_bytes(), "image/png")})
+
+    data = resp.json()
+    sd = data["solution_data"]
+    assert sd["ryacas"]["latex_result"] == "7"
+    assert sd["agreement"] == "match"
+
+
+def test_convert_marks_unavailable_when_plumber_down():
+    mock_response = MagicMock()
+    mock_response.text = "x"
+    sympy_result = {
+        "status": "success", "operation": "simplify", "operation_label": "Simplifying",
+        "steps": [], "solution": "x", "latex_result": "x",
+    }
+
+    class FakeClassifier:
+        def is_loaded(self): return False
+        def classify(self, _): return None
+
+    with patch.object(main, "classifier", FakeClassifier()), \
+         patch.object(main._client.models, "generate_content", return_value=mock_response), \
+         patch.object(main.solver, "solve_expression", return_value=sympy_result), \
+         patch.object(main.ryacas_client, "cross_solve", return_value=None):
+        resp = _client.post("/convert", files={"file": ("b.png", _png_bytes(), "image/png")})
+
+    sd = resp.json()["solution_data"]
+    assert sd["ryacas"] is None
+    assert sd["agreement"] == "ryacas_unavailable"
+
+
+def test_convert_marks_differ_when_solvers_disagree():
+    mock_response = MagicMock()
+    mock_response.text = "x + 5 = 12"
+    sympy_result = {
+        "status": "success", "operation": "solve", "operation_label": "Solving equation",
+        "steps": [], "solution": "7", "latex_result": "7",
+    }
+    ryacas_result = RyacasResult(status="success", solution="6", latex_result="6", error=None)
+
+    class FakeClassifier:
+        def is_loaded(self): return False
+        def classify(self, _): return None
+
+    with patch.object(main, "classifier", FakeClassifier()), \
+         patch.object(main._client.models, "generate_content", return_value=mock_response), \
+         patch.object(main.solver, "solve_expression", return_value=sympy_result), \
+         patch.object(main.ryacas_client, "cross_solve", return_value=ryacas_result):
+        resp = _client.post("/convert", files={"file": ("b.png", _png_bytes(), "image/png")})
+
+    sd = resp.json()["solution_data"]
+    assert sd["agreement"] == "differ"
+    assert sd["ryacas"]["latex_result"] == "6"
+
+
+def test_convert_logs_activity_row():
+    mock_response = MagicMock()
+    mock_response.text = "x"
+    sympy_result = {
+        "status": "success", "operation": "simplify", "operation_label": "Simplifying",
+        "steps": [], "solution": "x", "latex_result": "x",
+    }
+
+    class FakeClassifier:
+        def is_loaded(self): return False
+        def classify(self, _): return None
+
+    with patch.object(main, "classifier", FakeClassifier()), \
+         patch.object(main._client.models, "generate_content", return_value=mock_response), \
+         patch.object(main.solver, "solve_expression", return_value=sympy_result), \
+         patch.object(main.ryacas_client, "cross_solve", return_value=None), \
+         patch.object(main.activity_log, "log_request") as log_mock:
+        _client.post("/convert", files={"file": ("b.png", _png_bytes(), "image/png")})
+
+    assert log_mock.call_count == 1
+    kwargs = log_mock.call_args.kwargs
+    assert kwargs["source"] == "gemini"
+    assert kwargs["recognized_latex"] == "x"
+    assert kwargs["agreement"] == "ryacas_unavailable"

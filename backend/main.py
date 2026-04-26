@@ -1,13 +1,17 @@
 """
 MathBoard FastAPI backend.
 
-Accepts a handwritten-math image. Tries a local SymbolClassifier first; if it
-declines (artifacts missing, multi-symbol, or low confidence), falls back to
-Google Gemini for OCR. The result (LaTeX) goes through solver.py (SymPy).
+Tries a local SymbolClassifier first; falls back to Google Gemini if the
+classifier is disabled, indecisive, or sees a multi-symbol input. The
+recognized LaTeX is then solved by SymPy and (in parallel) cross-checked by
+Ryacas via the R Plumber API. Each request is appended to activity.db.
 """
 
+import concurrent.futures
 import os
+import re
 import sys
+import time
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -16,6 +20,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from google import genai
 from google.genai import types
 
+import activity_log
+import ryacas_client
 import solver
 from ml.classifier import SymbolClassifier
 
@@ -26,20 +32,21 @@ GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 
 if not GEMINI_API_KEY:
     print(
-        "\n"
-        "================================================================\n"
+        "\n================================================================\n"
         "  WARNING: GEMINI_API_KEY is not set.\n"
         "  Create backend/.env with GEMINI_API_KEY=your_key_here\n"
         "  Generate a key at https://aistudio.google.com\n"
         "================================================================\n",
-        file=sys.stderr,
-        flush=True,
+        file=sys.stderr, flush=True,
     )
     _client = None
 else:
     _client = genai.Client(api_key=GEMINI_API_KEY)
 
-_ARTIFACTS = Path(__file__).parent / "ml" / "artifacts"
+_BACKEND_DIR = Path(__file__).parent
+_ARTIFACTS = _BACKEND_DIR / "ml" / "artifacts"
+_ACTIVITY_DB = _BACKEND_DIR / "activity.db"
+
 classifier = SymbolClassifier(
     model_path=_ARTIFACTS / "model.pt",
     classes_path=_ARTIFACTS / "classes.json",
@@ -59,11 +66,8 @@ OCR_PROMPT = (
 
 app = FastAPI(title="MathBoard Backend")
 app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    CORSMiddleware, allow_origins=["*"], allow_credentials=True,
+    allow_methods=["*"], allow_headers=["*"],
 )
 
 
@@ -91,8 +95,7 @@ def _classify_gemini_error(exc: Exception) -> str:
     msg = str(exc)
     lowered = msg.lower()
     if "service_disabled" in lowered or "has not been used in project" in lowered:
-        import re as _re
-        m = _re.search(r"https://console\.developers\.google\.com/[^\s'\"]+", msg)
+        m = re.search(r"https://console\.developers\.google\.com/[^\s'\"]+", msg)
         url = m.group(0) if m else "https://aistudio.google.com"
         return (
             "Your Gemini key is a Google Cloud key whose project does not have the "
@@ -111,6 +114,22 @@ def _classify_gemini_error(exc: Exception) -> str:
     return f"Gemini API error: {msg}"
 
 
+def _normalize_for_compare(s: str | None) -> str:
+    if not s:
+        return ""
+    return re.sub(r"\s+", "", s)
+
+
+def _compute_agreement(sympy_latex: str | None, ryacas_result) -> str:
+    if ryacas_result is None:
+        return "ryacas_unavailable"
+    if ryacas_result.status != "success":
+        return "ryacas_error"
+    if _normalize_for_compare(sympy_latex) == _normalize_for_compare(ryacas_result.latex_result):
+        return "match"
+    return "differ"
+
+
 @app.get("/health")
 def health():
     return {
@@ -123,15 +142,14 @@ def health():
 
 @app.post("/convert")
 async def convert_equation(file: UploadFile = File(...)):
+    t0 = time.monotonic()
     try:
         image_bytes = await file.read()
     except Exception as exc:
         return {"error": f"Failed to read uploaded file: {exc}"}
-
     if not image_bytes:
         return {"error": "Uploaded image was empty."}
 
-    # Try local classifier first.
     try:
         local_result = classifier.classify(image_bytes) if classifier.is_loaded() else None
     except Exception as exc:
@@ -166,18 +184,45 @@ async def convert_equation(file: UploadFile = File(...)):
             return {"error": _classify_gemini_error(exc)}
         latex_string = _strip_latex_fences(raw_latex)
         if not latex_string:
-            return {
-                "error": (
-                    "Gemini returned an empty response. Try drawing a clearer "
-                    "expression or using a thicker pen."
-                )
-            }
+            return {"error": "Gemini returned an empty response. Try drawing a clearer expression."}
         source = "gemini"
         confidence = None
         print(f"[Gemini Result] {latex_string}", flush=True)
 
-    solution_data = solver.solve_expression(latex_string)
-    print(f"[Solver Result] {solution_data}", flush=True)
+    # Solve in parallel: SymPy + Ryacas.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
+        sympy_future = ex.submit(solver.solve_expression, latex_string)
+        ryacas_future = ex.submit(ryacas_client.cross_solve, latex_string)
+        solution_data = sympy_future.result()
+        ryacas_result = ryacas_future.result()
+
+    solution_data["ryacas"] = (
+        None if ryacas_result is None
+        else {
+            "status": ryacas_result.status,
+            "solution": ryacas_result.solution,
+            "latex_result": ryacas_result.latex_result,
+        }
+    )
+    solution_data["agreement"] = _compute_agreement(
+        solution_data.get("latex_result"), ryacas_result
+    )
+
+    duration_ms = int((time.monotonic() - t0) * 1000)
+
+    activity_log.log_request(
+        db_path=_ACTIVITY_DB,
+        source=source,
+        recognized_latex=latex_string,
+        confidence=confidence,
+        num_components=local_result.num_components if local_result else None,
+        operation=solution_data.get("operation"),
+        sympy_solution=solution_data.get("latex_result"),
+        ryacas_solution=(solution_data["ryacas"] or {}).get("latex_result"),
+        agreement=solution_data["agreement"],
+        duration_ms=duration_ms,
+        image_bytes=image_bytes,
+    )
 
     return {
         "status": "success",
