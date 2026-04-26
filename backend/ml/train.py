@@ -1,10 +1,8 @@
-"""Train a SymbolCNN on HASYv2 top-N classes.
+"""Train a SymbolCNN on HASYv2 top-N classes plus optionally MNIST digits.
 
 Run from backend/:
-    python -m ml.train
-
-Reads data/hasy/hasy-data-labels.csv (+ data/hasy/hasy-data/*.png),
-writes ml/artifacts/{model.pt, classes.json, metrics.json}.
+    python -m ml.train                  # default: includes MNIST
+    python -m ml.train --no-mnist       # HASYv2 only
 """
 
 import argparse
@@ -18,8 +16,16 @@ import numpy as np
 import torch
 import torch.nn as nn
 from PIL import Image
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader
 
+from ml.confusion import compute_confusion, save_confusion
+from ml.datasets import (
+    CombinedDataset,
+    HasyDataset,
+    MnistDataset,
+    build_weighted_sampler,
+    load_mnist,
+)
 from ml.model import SymbolCNN
 
 CONFIDENCE_THRESHOLD = 0.85
@@ -29,54 +35,7 @@ DEFAULT_BATCH_SIZE = 128
 DEFAULT_LR = 1e-3
 DEFAULT_WEIGHT_DECAY = 1e-4
 DEFAULT_SEED = 42
-
-
-class HasyDataset(Dataset):
-    def __init__(
-        self,
-        rows: list[tuple[str, int]],
-        image_root: Path,
-        augment: bool,
-        mean: float,
-        std: float,
-    ) -> None:
-        self.rows = rows
-        self.image_root = image_root
-        self.augment = augment
-        self.mean = mean
-        self.std = std
-
-    def __len__(self) -> int:
-        return len(self.rows)
-
-    def _load(self, rel_path: str) -> np.ndarray:
-        with Image.open(self.image_root / rel_path) as img:
-            arr = np.asarray(img.convert("L"), dtype=np.float32) / 255.0
-        if arr.shape != (32, 32):
-            img2 = Image.fromarray((arr * 255).astype(np.uint8), mode="L").resize(
-                (32, 32), Image.LANCZOS
-            )
-            arr = np.asarray(img2, dtype=np.float32) / 255.0
-        return arr
-
-    def _augment(self, arr: np.ndarray) -> np.ndarray:
-        img = Image.fromarray((arr * 255).astype(np.uint8), mode="L")
-        angle = random.uniform(-10, 10)
-        tx, ty = random.randint(-2, 2), random.randint(-2, 2)
-        img = img.rotate(angle, resample=Image.BILINEAR, fillcolor=255)
-        img = img.transform(
-            img.size, Image.AFFINE, (1, 0, tx, 0, 1, ty), fillcolor=255
-        )
-        return np.asarray(img, dtype=np.float32) / 255.0
-
-    def __getitem__(self, i: int) -> tuple[torch.Tensor, int]:
-        rel, label = self.rows[i]
-        arr = self._load(rel)
-        if self.augment:
-            arr = self._augment(arr)
-        t = torch.from_numpy(arr).unsqueeze(0)
-        t = (t - self.mean) / self.std
-        return t, label
+DEFAULT_VAL_FRAC = 0.15
 
 
 def _read_labels(labels_csv: Path) -> list[dict]:
@@ -90,11 +49,9 @@ def _pick_top_classes(rows: list[dict], top_n: int) -> list[str]:
     return [k for k, _ in ordered[:top_n]]
 
 
-def _stratified_split(
-    rows: list[tuple[str, int]], val_frac: float, seed: int
-) -> tuple[list, list]:
+def _stratified_split(rows, val_frac, seed):
     rng = random.Random(seed)
-    by_label: dict[int, list[tuple[str, int]]] = {}
+    by_label: dict[int, list] = {}
     for r in rows:
         by_label.setdefault(r[1], []).append(r)
     train, val = [], []
@@ -108,21 +65,12 @@ def _stratified_split(
     return train, val
 
 
-def _compute_dataset_stats(rows: list[tuple[str, int]], image_root: Path) -> tuple[float, float]:
-    """Mean and std over a sample of training images (max 2000)."""
-    sample = rows[: min(2000, len(rows))]
-    pixels: list[np.ndarray] = []
-    for rel, _ in sample:
-        with Image.open(image_root / rel) as img:
-            arr = np.asarray(img.convert("L"), dtype=np.float32) / 255.0
-        pixels.append(arr.flatten())
-    flat = np.concatenate(pixels)
+def _stats_from_arrays(arrays: list[np.ndarray]) -> tuple[float, float]:
+    flat = np.concatenate([a.flatten() for a in arrays])
     return float(flat.mean()), float(flat.std() or 1e-6)
 
 
-def _train_one_epoch(
-    model: SymbolCNN, loader: DataLoader, optim, criterion, device
-) -> tuple[float, float]:
+def _train_one_epoch(model, loader, optim, criterion, device):
     model.train()
     total_loss, correct, n = 0.0, 0, 0
     for x, y in loader:
@@ -139,10 +87,7 @@ def _train_one_epoch(
 
 
 @torch.no_grad()
-def _evaluate(
-    model: SymbolCNN, loader: DataLoader, criterion, device
-) -> tuple[float, float, float, float]:
-    """Returns (val_loss, top1_acc, coverage_at_threshold, acc_on_accepted)."""
+def _evaluate(model, loader, criterion, device):
     model.eval()
     total_loss, correct, n = 0.0, 0, 0
     accepted, accepted_correct = 0, 0
@@ -173,39 +118,71 @@ def run(
     epochs: int = DEFAULT_EPOCHS,
     batch_size: int = DEFAULT_BATCH_SIZE,
     seed: int = DEFAULT_SEED,
+    include_mnist: bool = True,
+    mnist_dir: Path | None = None,
 ) -> None:
-    """Train a SymbolCNN. Used by CLI and by smoke tests with patched paths."""
     artifacts_dir.mkdir(parents=True, exist_ok=True)
-    labels_csv = data_root / "hasy-data-labels.csv"
-    image_root = data_root
+    random.seed(seed); np.random.seed(seed); torch.manual_seed(seed)
 
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
+    raw = _read_labels(data_root / "hasy-data-labels.csv")
+    print(f"[train] HASYv2: {len(raw):,} rows", flush=True)
+    hasy_classes = _pick_top_classes(raw, top_n_classes)
+    cls_to_idx = {c: i for i, c in enumerate(hasy_classes)}
+    hasy_rows = [(r["path"], cls_to_idx[r["latex"]]) for r in raw if r["latex"] in cls_to_idx]
+    print(f"[train] HASYv2: top {len(hasy_classes)} classes, {len(hasy_rows):,} samples", flush=True)
+    h_train, h_val = _stratified_split(hasy_rows, DEFAULT_VAL_FRAC, seed)
 
-    print(f"[train] Reading labels from {labels_csv}", flush=True)
-    raw = _read_labels(labels_csv)
-    print(f"[train] {len(raw):,} rows", flush=True)
+    classes = list(hasy_classes)
+    label_offset = len(hasy_classes)
+    m_train_imgs = m_train_lbls = m_val_imgs = m_val_lbls = None
+    if include_mnist:
+        mnist_dir = mnist_dir or (data_root.parent / "mnist")
+        print("[train] loading MNIST...", flush=True)
+        m_imgs, m_lbls = load_mnist(mnist_dir)
+        train_idx, val_idx = [], []
+        rng = random.Random(seed)
+        for d in range(10):
+            idxs = list(np.where(m_lbls == d)[0])
+            rng.shuffle(idxs)
+            cut = max(1, int(len(idxs) * DEFAULT_VAL_FRAC))
+            val_idx.extend(idxs[:cut])
+            train_idx.extend(idxs[cut:])
+        m_train_imgs = m_imgs[train_idx]; m_train_lbls = m_lbls[train_idx]
+        m_val_imgs = m_imgs[val_idx]; m_val_lbls = m_lbls[val_idx]
+        classes = list(hasy_classes) + [str(d) for d in range(10)]
+        print(f"[train] MNIST: {len(train_idx):,} train / {len(val_idx):,} val", flush=True)
 
-    classes = _pick_top_classes(raw, top_n_classes)
-    cls_to_idx = {c: i for i, c in enumerate(classes)}
-    rows = [(r["path"], cls_to_idx[r["latex"]]) for r in raw if r["latex"] in cls_to_idx]
-    print(
-        f"[train] Using top {len(classes)} classes, {len(rows):,} samples "
-        f"({len(rows)/max(1,len(raw)):.1%} of total)",
-        flush=True,
-    )
-
-    train_rows, val_rows = _stratified_split(rows, val_frac=0.15, seed=seed)
-    print(f"[train] split: {len(train_rows):,} train / {len(val_rows):,} val", flush=True)
-
-    mean, std = _compute_dataset_stats(train_rows, image_root)
+    print("[train] sampling images for mean/std...", flush=True)
+    sample_arrays: list[np.ndarray] = []
+    for rel, _ in h_train[:1500]:
+        with Image.open(data_root / rel) as img:
+            sample_arrays.append(np.asarray(img.convert("L"), dtype=np.float32) / 255.0)
+    if include_mnist:
+        for raw28 in m_train_imgs[:500]:
+            inv = 255 - raw28
+            big = np.asarray(Image.fromarray(inv, mode="L").resize((32, 32), Image.BILINEAR), dtype=np.float32) / 255.0
+            sample_arrays.append(big)
+    mean, std = _stats_from_arrays(sample_arrays)
     print(f"[train] dataset mean={mean:.4f} std={std:.4f}", flush=True)
 
-    train_ds = HasyDataset(train_rows, image_root, augment=True, mean=mean, std=std)
-    val_ds = HasyDataset(val_rows, image_root, augment=False, mean=mean, std=std)
-    train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True, num_workers=0)
-    val_loader = DataLoader(val_ds, batch_size=batch_size, shuffle=False, num_workers=0)
+    hasy_train_ds = HasyDataset(h_train, image_root=data_root, augment=True, mean=mean, std=std)
+    hasy_val_ds = HasyDataset(h_val, image_root=data_root, augment=False, mean=mean, std=std)
+    train_sources = [hasy_train_ds]
+    val_sources = [hasy_val_ds]
+    train_label_seq = [r[1] for r in h_train]
+    if include_mnist:
+        m_train_ds = MnistDataset(m_train_imgs, m_train_lbls, augment=True, mean=mean, std=std, label_offset=label_offset)
+        m_val_ds = MnistDataset(m_val_imgs, m_val_lbls, augment=False, mean=mean, std=std, label_offset=label_offset)
+        train_sources.append(m_train_ds)
+        val_sources.append(m_val_ds)
+        train_label_seq = train_label_seq + [int(l) + label_offset for l in m_train_lbls]
+
+    train_combined = CombinedDataset(train_sources)
+    val_combined = CombinedDataset(val_sources)
+
+    sampler = build_weighted_sampler(train_label_seq, num_samples=len(train_combined), seed=seed)
+    train_loader = DataLoader(train_combined, batch_size=batch_size, sampler=sampler, num_workers=0)
+    val_loader = DataLoader(val_combined, batch_size=batch_size, shuffle=False, num_workers=0)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = SymbolCNN(num_classes=len(classes)).to(device)
@@ -214,20 +191,14 @@ def run(
     criterion = nn.CrossEntropyLoss()
 
     best_acc = -1.0
-    best_state = None
-    best_metrics: dict = {}
+    best_state, best_metrics = None, {}
     for epoch in range(1, epochs + 1):
         tr_loss, tr_acc = _train_one_epoch(model, train_loader, optim, criterion, device)
-        val_loss, val_acc, coverage, acc_accepted = _evaluate(
-            model, val_loader, criterion, device
-        )
+        val_loss, val_acc, coverage, acc_accepted = _evaluate(model, val_loader, criterion, device)
         scheduler.step()
         print(
-            f"[train] epoch {epoch}/{epochs} "
-            f"train_loss={tr_loss:.4f} train_acc={tr_acc:.4f} "
-            f"val_loss={val_loss:.4f} val_acc={val_acc:.4f} "
-            f"coverage@{CONFIDENCE_THRESHOLD:.2f}={coverage:.4f} "
-            f"acc_on_accepted={acc_accepted:.4f}",
+            f"[train] epoch {epoch}/{epochs} train_acc={tr_acc:.4f} val_acc={val_acc:.4f} "
+            f"coverage@{CONFIDENCE_THRESHOLD:.2f}={coverage:.4f} acc_on_accepted={acc_accepted:.4f}",
             flush=True,
         )
         if val_acc > best_acc:
@@ -242,6 +213,7 @@ def run(
                 "train_std": std,
                 "epoch": epoch,
                 "num_classes": len(classes),
+                "includes_mnist": include_mnist,
             }
 
     torch.save(best_state, artifacts_dir / "model.pt")
@@ -249,13 +221,16 @@ def run(
         json.dump(classes, f, ensure_ascii=False, indent=2)
     with open(artifacts_dir / "metrics.json", "w", encoding="utf-8") as f:
         json.dump(best_metrics, f, indent=2)
-    print(
-        f"[train] Best val_acc={best_acc:.4f}. Wrote artifacts to {artifacts_dir}",
-        flush=True,
-    )
+
+    print("[train] computing confusion matrix...", flush=True)
+    model.load_state_dict(best_state)
+    matrix = compute_confusion(model, val_loader, num_classes=len(classes), device=device)
+    save_confusion(artifacts_dir / "confusion.json", classes=classes, matrix=matrix)
+
+    print(f"[train] Best val_acc={best_acc:.4f}. Wrote artifacts to {artifacts_dir}", flush=True)
 
 
-def main() -> None:
+def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data-root", default="data/hasy", type=Path)
     parser.add_argument("--artifacts-dir", default="ml/artifacts", type=Path)
@@ -263,6 +238,8 @@ def main() -> None:
     parser.add_argument("--epochs", default=DEFAULT_EPOCHS, type=int)
     parser.add_argument("--batch-size", default=DEFAULT_BATCH_SIZE, type=int)
     parser.add_argument("--seed", default=DEFAULT_SEED, type=int)
+    parser.add_argument("--mnist-dir", default=None, type=Path)
+    parser.add_argument("--no-mnist", action="store_true")
     args = parser.parse_args()
     run(
         data_root=args.data_root,
@@ -271,6 +248,8 @@ def main() -> None:
         epochs=args.epochs,
         batch_size=args.batch_size,
         seed=args.seed,
+        include_mnist=not args.no_mnist,
+        mnist_dir=args.mnist_dir,
     )
 
 
