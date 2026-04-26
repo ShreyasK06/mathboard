@@ -1,5 +1,5 @@
 /* =====================================================================
-   MathBoard — refined visual system
+   MathBoard — portfolio-grade visual system
    Light theme by default; dark theme via [data-theme="dark"] on <html>.
    ===================================================================== */
 
@@ -109,6 +109,9 @@ html, body, #root {
   background: var(--bg);
   color: var(--text);
   font-family: var(--font-sans);
+  /* Subtle dot-grid texture — like Vercel/Linear */
+  background-image: radial-gradient(circle, var(--bg-grid) 1px, transparent 1px);
+  background-size: 24px 24px;
 }
 
 button {
@@ -125,17 +128,24 @@ button {
 .page {
   width: 100%;
   min-height: 100vh;
-  padding: 28px 20px 64px;
+  padding: 28px 20px 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 18px;
 }
 
-/* ---------- Header ---------- */
-.page-header {
+/* ---------- Hero ---------- */
+.hero {
   width: 100%;
   max-width: 1100px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-bottom: 4px;
+}
+
+.hero-top {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -175,15 +185,60 @@ button {
   margin: 0;
   font-size: 1.5rem;
   font-weight: 700;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.03em;
   color: var(--text);
 }
 
-.subtitle {
-  margin: 2px 0 0;
-  color: var(--text-soft);
-  font-size: 0.85rem;
+/* Hero tagline */
+.hero-tagline {
+  margin: 0;
+  font-size: 1rem;
   font-weight: 500;
+  color: var(--text-soft);
+  letter-spacing: -0.01em;
+  line-height: 1.5;
+}
+
+/* Stat pills row */
+.hero-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.stat-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--text-soft);
+  box-shadow: var(--shadow-xs);
+  transition: border-color 200ms cubic-bezier(0.4, 0, 0.2, 1),
+              background 200ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.stat-pill:hover {
+  border-color: var(--accent-ring);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.stat-num {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: -0.01em;
+}
+
+.stat-label {
+  color: inherit;
 }
 
 .header-actions {
@@ -202,7 +257,10 @@ button {
   cursor: pointer;
   display: grid;
   place-items: center;
-  transition: background 160ms ease, color 160ms ease, border-color 160ms ease, transform 160ms ease;
+  transition: background 200ms cubic-bezier(0.4, 0, 0.2, 1),
+              color 200ms cubic-bezier(0.4, 0, 0.2, 1),
+              border-color 200ms cubic-bezier(0.4, 0, 0.2, 1),
+              transform 120ms cubic-bezier(0.4, 0, 0.2, 1);
   box-shadow: var(--shadow-xs);
 }
 
@@ -359,7 +417,10 @@ button {
   color: var(--text-soft);
   border-radius: 8px;
   cursor: pointer;
-  transition: background 140ms ease, color 140ms ease, border-color 140ms ease, transform 140ms ease;
+  transition: background 200ms cubic-bezier(0.4, 0, 0.2, 1),
+              color 200ms cubic-bezier(0.4, 0, 0.2, 1),
+              border-color 200ms cubic-bezier(0.4, 0, 0.2, 1),
+              transform 120ms cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
 }
 
@@ -546,7 +607,10 @@ button {
   align-items: center;
   gap: 8px;
   box-shadow: 0 4px 14px var(--accent-ring);
-  transition: transform 140ms ease, box-shadow 140ms ease, background 140ms ease, opacity 140ms ease;
+  transition: transform 200ms cubic-bezier(0.4, 0, 0.2, 1),
+              box-shadow 200ms cubic-bezier(0.4, 0, 0.2, 1),
+              background 200ms cubic-bezier(0.4, 0, 0.2, 1),
+              opacity 200ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .convert-btn:hover:not(:disabled) {
@@ -556,7 +620,7 @@ button {
 }
 
 .convert-btn:active:not(:disabled) {
-  transform: translateY(0);
+  transform: translateY(0) scale(0.98);
 }
 
 .convert-btn:disabled {
@@ -661,12 +725,6 @@ button {
 .result-error-body {
   font-size: 0.88rem;
   word-break: break-word;
-}
-
-.result-success {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
 }
 
 .latex-box {
@@ -880,18 +938,25 @@ details[open] .steps-summary::before {
 /* ---------- Responsive ---------- */
 @media (max-width: 720px) {
   .page {
-    padding: 18px 14px 48px;
+    padding: 18px 14px 0;
     gap: 14px;
   }
-  .page-header {
+  .hero-top {
     flex-wrap: wrap;
     gap: 10px;
   }
   .brand-text h1 {
     font-size: 1.25rem;
   }
-  .subtitle {
-    font-size: 0.78rem;
+  .hero-tagline {
+    font-size: 0.88rem;
+  }
+  .hero-stats {
+    gap: 6px;
+  }
+  .stat-pill {
+    font-size: 0.72rem;
+    padding: 3px 10px;
   }
   .toolbar {
     gap: 8px;
@@ -919,12 +984,38 @@ details[open] .steps-summary::before {
   .results {
     padding: 18px;
   }
-  .latex-box {
-    padding: 20px 14px;
-    font-size: 1.1rem;
+  .latex-hero {
+    font-size: 1rem;
+    padding: 12px 8px;
+  }
+  .latex-solution-hero {
+    font-size: 1.15rem;
   }
   .icon-btn[data-tooltip]:hover::before {
     opacity: 0;
+  }
+  /* Stack how-it-works cards vertically on mobile */
+  .how-cards {
+    flex-direction: column;
+    gap: 10px;
+  }
+  .how-connector {
+    padding: 0;
+    transform: rotate(90deg);
+    align-self: flex-start;
+    margin-left: 20px;
+  }
+  .footer-inner {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+}
+
+@media (max-width: 480px) {
+  .hero-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
   }
 }
 
@@ -1001,4 +1092,319 @@ details[open] .steps-summary::before {
 
 [data-theme="dark"] .agreement-differ {
   background: rgba(245, 158, 11, 0.20);
+}
+
+/* ---------- Canvas empty-state hint ---------- */
+.canvas-empty-hint {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  pointer-events: none;
+  user-select: none;
+  color: var(--muted);
+  opacity: 0.55;
+}
+
+.canvas-empty-hint svg {
+  display: block;
+  opacity: 0.7;
+}
+
+.canvas-empty-hint span {
+  font-size: 0.9rem;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+
+/* ---------- Result card ---------- */
+@keyframes result-appear {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.result-success {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  animation: result-appear 280ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+.result-card {
+  border-radius: var(--radius);
+  padding: 20px 20px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+
+.result-card-input {
+  border-top: 3px solid var(--accent);
+}
+
+.result-card-solution {
+  border-top: 3px solid var(--success);
+  background: var(--success-bg);
+  border-color: var(--success-border);
+  border-top-color: var(--success);
+}
+
+[data-theme="dark"] .result-card-solution {
+  background: rgba(52, 211, 153, 0.06);
+}
+
+/* Hero KaTeX render */
+.latex-hero {
+  text-align: center;
+  overflow-x: auto;
+  font-size: 1.35rem;
+  padding: 16px 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.latex-solution-hero {
+  font-size: 1.5rem;
+  padding: 20px 12px;
+  background: var(--surface);
+  border-color: var(--success-border);
+}
+
+/* Equals divider between input and solution */
+.result-equals-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: -6px 0;
+}
+
+.result-equals-line {
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.result-equals-sym {
+  font-family: var(--font-mono);
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--muted);
+  line-height: 1;
+}
+
+/* ---------- How it works ---------- */
+.how-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--surface);
+}
+
+.how-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 13px 16px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text-soft);
+  text-align: left;
+  transition: color 200ms cubic-bezier(0.4, 0, 0.2, 1),
+              background 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  letter-spacing: -0.01em;
+}
+
+.how-toggle:hover {
+  color: var(--text);
+  background: var(--surface-3);
+}
+
+.how-toggle:active {
+  transform: scale(0.99);
+}
+
+.how-chevron {
+  display: block;
+  transition: transform 200ms cubic-bezier(0.4, 0, 0.2, 1);
+  flex-shrink: 0;
+}
+
+.how-chevron.open {
+  transform: rotate(180deg);
+}
+
+.how-cards {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  padding: 16px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-2);
+  animation: result-appear 220ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+.how-card {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  min-width: 0;
+}
+
+.how-card-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-ring);
+  display: grid;
+  place-items: center;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.how-card-icon svg {
+  display: block;
+}
+
+.how-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.how-card-title {
+  margin: 0;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+
+.how-card-desc {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-soft);
+  line-height: 1.5;
+}
+
+.how-connector {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 6px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.how-connector svg {
+  display: block;
+}
+
+/* ---------- Footer ---------- */
+.site-footer {
+  width: 100%;
+  margin-top: auto;
+  padding: 20px 20px 24px;
+  border-top: 1px solid var(--border);
+}
+
+.footer-inner {
+  max-width: 1100px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.footer-stack {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.footer-built {
+  font-size: 0.75rem;
+  color: var(--muted);
+  font-weight: 500;
+  margin-right: 2px;
+}
+
+.footer-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  letter-spacing: -0.01em;
+  transition: border-color 200ms cubic-bezier(0.4, 0, 0.2, 1),
+              color 200ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.footer-pill:hover {
+  border-color: var(--border-strong);
+  color: var(--text-soft);
+}
+
+.footer-github {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-soft);
+  font-size: 0.8rem;
+  font-weight: 500;
+  text-decoration: none;
+  transition: border-color 200ms cubic-bezier(0.4, 0, 0.2, 1),
+              color 200ms cubic-bezier(0.4, 0, 0.2, 1),
+              transform 120ms cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: var(--shadow-xs);
+}
+
+.footer-github:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+.footer-github:active {
+  transform: scale(0.98);
+}
+
+.footer-github svg {
+  display: block;
 }

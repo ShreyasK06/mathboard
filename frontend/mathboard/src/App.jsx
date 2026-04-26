@@ -5,6 +5,7 @@ import "./App.css";
 
 const BACKEND_URL = "http://127.0.0.1:8000";
 const SHINY_URL = "http://localhost:3838";
+const GITHUB_URL = "https://github.com/svk6639/mathboard";
 
 /* ---------- Inline icons ---------- */
 const Icon = {
@@ -87,6 +88,38 @@ const Icon = {
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" {...props}>
       <path d="M4 19l4-12 3 8 2-5 3 9" />
       <path d="M3 21h18" />
+    </svg>
+  ),
+  /* Hero section icons */
+  DrawCanvas: (props) => (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <rect x="2" y="3" width="20" height="14" rx="2" />
+      <path d="M8 21h8M12 17v4" />
+      <path d="M7 9l2 2 4-4" />
+    </svg>
+  ),
+  Recognize: (props) => (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <circle cx="11" cy="11" r="8" />
+      <path d="M21 21l-4.35-4.35" />
+      <path d="M11 8v6M8 11h6" />
+    </svg>
+  ),
+  Calculator: (props) => (
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <rect x="4" y="2" width="16" height="20" rx="2" />
+      <path d="M8 6h8" />
+      <path d="M8 10h2M14 10h2M8 14h2M14 14h2M8 18h2M14 18h2" />
+    </svg>
+  ),
+  GitHub: (props) => (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22" />
+    </svg>
+  ),
+  PencilDraw: (props) => (
+    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
     </svg>
   ),
 };
@@ -325,6 +358,7 @@ export default function App() {
     ctx.lineTo(x + 0.01, y + 0.01);
     ctx.stroke();
     isDrawingRef.current = true;
+    setCanvasHasContent(true);
   };
 
   const handlePointerMove = (e) => {
@@ -347,6 +381,7 @@ export default function App() {
   const clearCanvas = () => {
     clearToWhite();
     snapshot();
+    setCanvasHasContent(false);
   };
 
   const undo = () => {
@@ -367,6 +402,10 @@ export default function App() {
   const canRedo = historyIndexRef.current < historyRef.current.length - 1;
   const _tickForUndoRedo = historyTick; // just to keep React reading the ref
   void _tickForUndoRedo;
+
+  // Canvas empty state hint
+  const [canvasHasContent, setCanvasHasContent] = useState(false);
+  const [howItWorksOpen, setHowItWorksOpen] = useState(false);
 
   // ---------------------------------------------------------------------
   // Convert
@@ -463,26 +502,49 @@ export default function App() {
   // ---------------------------------------------------------------------
   return (
     <div className="page">
-      <header className="page-header">
-        <div className="brand">
-          <div className="brand-mark" aria-hidden="true">
-            <Icon.Logo />
+      {/* ---- Hero section ---- */}
+      <header className="hero">
+        <div className="hero-top">
+          <div className="brand">
+            <div className="brand-mark" aria-hidden="true">
+              <Icon.Logo />
+            </div>
+            <div className="brand-text">
+              <h1>MathBoard</h1>
+            </div>
           </div>
-          <div className="brand-text">
-            <h1>MathBoard</h1>
-            <p className="subtitle">Sketch math by hand. Gemini reads it, SymPy solves it.</p>
+          <div className="header-actions">
+            <button
+              type="button"
+              className="theme-toggle"
+              onClick={toggleTheme}
+              aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+              title={theme === "dark" ? "Light mode" : "Dark mode"}
+            >
+              {theme === "dark" ? <Icon.Sun /> : <Icon.Moon />}
+            </button>
           </div>
         </div>
-        <div className="header-actions">
-          <button
-            type="button"
-            className="theme-toggle"
-            onClick={toggleTheme}
-            aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
-            title={theme === "dark" ? "Light mode" : "Dark mode"}
-          >
-            {theme === "dark" ? <Icon.Sun /> : <Icon.Moon />}
-          </button>
+
+        <p className="hero-tagline">
+          Handwritten math, recognized locally first, solved instantly.
+        </p>
+
+        <div className="hero-stats" role="list">
+          <div className="stat-pill" role="listitem">
+            <span className="stat-num">110</span>
+            <span className="stat-label">symbol classes</span>
+          </div>
+          <div className="stat-pill" role="listitem">
+            <span className="stat-num">94%</span>
+            <span className="stat-label">val accuracy</span>
+          </div>
+          <div className="stat-pill" role="listitem">
+            <span className="stat-label">Local CNN + Gemini fallback</span>
+          </div>
+          <div className="stat-pill" role="listitem">
+            <span className="stat-label">SymPy + Ryacas cross-checked</span>
+          </div>
         </div>
       </header>
 
@@ -523,7 +585,7 @@ export default function App() {
           className={`nav-tab ${activeTab === "explorer" ? "active" : ""}`}
           onClick={() => setActiveTab("explorer")}
         >
-          Model & Activity
+          Model &amp; Activity
         </button>
       </nav>
 
@@ -628,6 +690,12 @@ export default function App() {
               onPointerCancel={handlePointerUp}
               onPointerLeave={handlePointerUp}
             />
+            {!canvasHasContent && (
+              <div className="canvas-empty-hint" aria-hidden="true">
+                <Icon.PencilDraw />
+                <span>Draw a math expression here</span>
+              </div>
+            )}
           </div>
 
           <button
@@ -669,6 +737,7 @@ export default function App() {
 
               {!isLoading && convertResult && (
                 <div className="result-success">
+                  {/* Badge row — intentionally placed above the hero render */}
                   <div className="badge-row">
                     {convertResult.operationLabel && (
                       <div className="operation-badge">{convertResult.operationLabel}</div>
@@ -691,9 +760,10 @@ export default function App() {
                     )}
                   </div>
 
-                  <div className="result-section">
+                  {/* Recognized LaTeX — hero display */}
+                  <div className="result-card result-card-input">
                     <div className="result-label-row">
-                      <h3 className="result-label">Recognized LaTeX</h3>
+                      <h3 className="result-label">Recognized expression</h3>
                       {convertResult.latex && (
                         <button
                           type="button"
@@ -707,7 +777,7 @@ export default function App() {
                       )}
                     </div>
                     <div
-                      className="latex-box"
+                      className="latex-hero"
                       dangerouslySetInnerHTML={{
                         __html: katex.renderToString(convertResult.latex || "\\,", {
                           throwOnError: false,
@@ -733,7 +803,15 @@ export default function App() {
                     </details>
                   )}
 
-                  <div className="result-section">
+                  {/* Equals divider */}
+                  <div className="result-equals-divider" aria-hidden="true">
+                    <span className="result-equals-line" />
+                    <span className="result-equals-sym">=</span>
+                    <span className="result-equals-line" />
+                  </div>
+
+                  {/* Solution card */}
+                  <div className="result-card result-card-solution">
                     <h3 className="result-label">Solution</h3>
                     {convertResult.isSolutionError ? (
                       <div className="result-error">
@@ -742,7 +820,7 @@ export default function App() {
                       </div>
                     ) : convertResult.latexResult ? (
                       <div
-                        className="latex-box solution-box"
+                        className="latex-hero latex-solution-hero"
                         dangerouslySetInnerHTML={{
                           __html: katex.renderToString(convertResult.latexResult, {
                             throwOnError: false,
@@ -776,6 +854,74 @@ export default function App() {
               )}
             </div>
           )}
+
+          {/* ---- How it works ---- */}
+          <div className="how-section">
+            <button
+              type="button"
+              className="how-toggle"
+              onClick={() => setHowItWorksOpen((o) => !o)}
+              aria-expanded={howItWorksOpen}
+            >
+              <span>How it works</span>
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className={howItWorksOpen ? "how-chevron open" : "how-chevron"}
+                aria-hidden="true"
+              >
+                <path d="M6 9l6 6 6-6" />
+              </svg>
+            </button>
+
+            {howItWorksOpen && (
+              <div className="how-cards">
+                <div className="how-card">
+                  <div className="how-card-icon" aria-hidden="true">
+                    <Icon.DrawCanvas />
+                  </div>
+                  <div className="how-card-body">
+                    <h4 className="how-card-title">Draw</h4>
+                    <p className="how-card-desc">Sketch any math expression on the canvas with your mouse or stylus.</p>
+                  </div>
+                </div>
+                <div className="how-connector" aria-hidden="true">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M5 12h14M13 6l6 6-6 6" />
+                  </svg>
+                </div>
+                <div className="how-card">
+                  <div className="how-card-icon" aria-hidden="true">
+                    <Icon.Recognize />
+                  </div>
+                  <div className="how-card-body">
+                    <h4 className="how-card-title">Recognize</h4>
+                    <p className="how-card-desc">Local CNN handles common symbols instantly. Gemini handles the rest.</p>
+                  </div>
+                </div>
+                <div className="how-connector" aria-hidden="true">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M5 12h14M13 6l6 6-6 6" />
+                  </svg>
+                </div>
+                <div className="how-card">
+                  <div className="how-card-icon" aria-hidden="true">
+                    <Icon.Calculator />
+                  </div>
+                  <div className="how-card-body">
+                    <h4 className="how-card-title">Solve</h4>
+                    <p className="how-card-desc">SymPy and Ryacas solve in parallel. Results are cross-checked for correctness.</p>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
         </section>
       )}
 
@@ -788,6 +934,28 @@ export default function App() {
           />
         </section>
       )}
+
+      {/* ---- Footer ---- */}
+      <footer className="site-footer">
+        <div className="footer-inner">
+          <div className="footer-stack">
+            <span className="footer-built">Built with</span>
+            {["FastAPI", "PyTorch", "React", "KaTeX", "SymPy", "R / Ryacas"].map((tech) => (
+              <span key={tech} className="footer-pill">{tech}</span>
+            ))}
+          </div>
+          <a
+            href={GITHUB_URL}
+            className="footer-github"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="View source on GitHub"
+          >
+            <Icon.GitHub />
+            <span>GitHub</span>
+          </a>
+        </div>
+      </footer>
     </div>
   );
 }
