@@ -62,12 +62,12 @@ def test_crop_resize_normalize_produces_32x32_tensor():
     resized = resize_to_32(cropped)
     arr = normalize(resized, mean=0.5, std=0.5)
     assert arr.shape == (1, 1, 32, 32)
-    # After cropping to the bbox, the ink ends up roughly centered in the
-    # 32x32 frame. Ink pixels normalize to +1.0, background to -1.0, so the
-    # *positive* signal should be concentrated in the middle 16x16 region.
-    middle_signal = float(arr[0, 0, 8:24, 8:24].clamp(min=0).sum())
-    edge_signal = float(arr[0, 0].clamp(min=0).sum() - middle_signal)
-    assert middle_signal > edge_signal
+    # After cropping, ink ends up roughly centered. Polarity matches HASYv2:
+    # ink is dark (normalizes to negative), background is bright (positive).
+    # The *negative* signal should be concentrated in the middle 16x16.
+    middle_dark = float(arr[0, 0, 8:24, 8:24].clamp(max=0).abs().sum())
+    edge_dark = float(arr[0, 0].clamp(max=0).abs().sum() - middle_dark)
+    assert middle_dark > edge_dark
 
 
 from unittest.mock import patch

@@ -88,12 +88,13 @@ def crop_to_bbox(mask: np.ndarray, padding: int = 4) -> np.ndarray:
 
 
 def resize_to_32(mask: np.ndarray) -> np.ndarray:
-    """Resize a (H,W) bool/float mask to 32x32 using LANCZOS, ink white on black.
+    """Resize a (H,W) bool ink mask to 32x32 grayscale using LANCZOS.
 
-    HASYv2 is white-ink-on-black. We invert here so the model sees the same
-    polarity at training and inference time.
+    HASYv2 is BLACK ink on a WHITE background (train-set pixel mean ~0.83 confirms).
+    The mask flag True=ink, so to match training polarity we render ink dark (0)
+    on a bright background (255), then normalize to [0, 1].
     """
-    img = Image.fromarray((mask.astype(np.uint8) * 255), mode="L")
+    img = Image.fromarray(((~mask).astype(np.uint8) * 255), mode="L")
     img = img.resize((32, 32), Image.LANCZOS)
     return np.asarray(img, dtype=np.float32) / 255.0
 
