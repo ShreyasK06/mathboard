@@ -68,3 +68,99 @@ def test_crop_resize_normalize_produces_32x32_tensor():
     middle_signal = float(arr[0, 0, 8:24, 8:24].clamp(min=0).sum())
     edge_signal = float(arr[0, 0].clamp(min=0).sum() - middle_signal)
     assert middle_signal > edge_signal
+
+
+from unittest.mock import patch
+
+from ml.classifier import SymbolClassifier
+
+
+def test_classifier_disabled_when_artifacts_missing(tmp_path):
+    c = SymbolClassifier(
+        model_path=tmp_path / "missing.pt",
+        classes_path=tmp_path / "missing.json",
+        metrics_path=tmp_path / "missing.json",
+    )
+    assert c.is_loaded() is False
+    img = _make_image(50, 50, lambda d: d.rectangle((10, 10, 30, 30), fill=0))
+    assert c.classify(img) is None
+
+
+def test_classifier_skips_when_too_many_components(tmp_path):
+    """Five disjoint dots -> classifier should not run model, returns accepted=False."""
+    c = SymbolClassifier(
+        model_path=tmp_path / "missing.pt",
+        classes_path=tmp_path / "missing.json",
+        metrics_path=tmp_path / "missing.json",
+    )
+    c._enabled = True
+    c._classes = ["x"] * 100
+    c._train_mean = 0.5
+    c._train_std = 0.5
+
+    def draw(d):
+        for cx in (5, 25, 45, 65, 85):
+            d.ellipse((cx, 30, cx + 5, 35), fill=0)
+    img = _make_image(100, 60, draw)
+    result = c.classify(img)
+    assert result is not None
+    assert result.accepted is False
+    assert result.predicted_latex == ""
+    assert result.num_components == 5
+
+
+def test_classifier_accepts_high_confidence(tmp_path):
+    c = SymbolClassifier(
+        model_path=tmp_path / "missing.pt",
+        classes_path=tmp_path / "missing.json",
+        metrics_path=tmp_path / "missing.json",
+    )
+    c._enabled = True
+    c._classes = ["x", "y"] + ["z"] * 98
+    c._train_mean = 0.5
+    c._train_std = 0.5
+
+    fake_logits = torch.tensor([[10.0, 0.0] + [0.0] * 98])  # softmax ~0.9999 on idx 0
+    with patch.object(c, "_forward", return_value=fake_logits):
+        img = _make_image(60, 60, lambda d: d.ellipse((20, 20, 40, 40), fill=0))
+        result = c.classify(img)
+    assert result is not None
+    assert result.accepted is True
+    assert result.predicted_latex == "x"
+    assert result.confidence > 0.9
+
+
+def test_classifier_rejects_low_confidence(tmp_path):
+    c = SymbolClassifier(
+        model_path=tmp_path / "missing.pt",
+        classes_path=tmp_path / "missing.json",
+        metrics_path=tmp_path / "missing.json",
+    )
+    c._enabled = True
+    c._classes = ["x", "y"] + ["z"] * 98
+    c._train_mean = 0.5
+    c._train_std = 0.5
+
+    # Near-uniform logits -> top-1 prob ~0.5
+    fake_logits = torch.tensor([[0.5, 0.4] + [0.0] * 98])
+    with patch.object(c, "_forward", return_value=fake_logits):
+        img = _make_image(60, 60, lambda d: d.ellipse((20, 20, 40, 40), fill=0))
+        result = c.classify(img)
+    assert result is not None
+    assert result.accepted is False
+    assert result.predicted_latex == "x"  # top-1 still reported
+    assert result.confidence < 0.85
+
+
+def test_classifier_returns_none_for_blank_image(tmp_path):
+    c = SymbolClassifier(
+        model_path=tmp_path / "missing.pt",
+        classes_path=tmp_path / "missing.json",
+        metrics_path=tmp_path / "missing.json",
+    )
+    c._enabled = True
+    c._classes = ["x"] * 100
+    c._train_mean = 0.5
+    c._train_std = 0.5
+    blank = _make_image(50, 50, lambda d: None)
+    assert c.classify(blank) is None
