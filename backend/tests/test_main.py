@@ -108,3 +108,72 @@ def test_convert_solution_data_has_operation_label():
     data = resp.json()
     assert data["solution_data"]["operation_label"] == "Solving equation"
     assert data["solution_data"]["steps"] == ["Detected equation", "Solving for x"]
+
+
+from ml.classifier import ClassifyResult
+
+
+def test_convert_uses_local_when_classifier_accepts():
+    """When the local classifier accepts, Gemini is NOT called and source='local'."""
+    accepted = ClassifyResult(
+        predicted_latex="x", confidence=0.93, num_components=1, accepted=True
+    )
+
+    class FakeClassifier:
+        def is_loaded(self): return True
+        def classify(self, _): return accepted
+
+    with patch.object(main, "classifier", FakeClassifier()), \
+         patch.object(main._client.models, "generate_content") as gemini, \
+         patch.object(main.solver, "solve_expression", return_value=_MOCK_SOLVER_RESULT):
+        resp = _client.post("/convert", files={"file": ("b.png", _png_bytes(), "image/png")})
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "success"
+    assert data["latex"] == "x"
+    assert data["source"] == "local"
+    assert 0.9 < data["confidence"] < 1.0
+    gemini.assert_not_called()
+
+
+def test_convert_falls_back_to_gemini_on_low_confidence():
+    rejected = ClassifyResult(
+        predicted_latex="x", confidence=0.40, num_components=1, accepted=False
+    )
+
+    class FakeClassifier:
+        def is_loaded(self): return True
+        def classify(self, _): return rejected
+
+    mock_response = MagicMock()
+    mock_response.text = "x^2 + 1"
+
+    with patch.object(main, "classifier", FakeClassifier()), \
+         patch.object(main._client.models, "generate_content", return_value=mock_response), \
+         patch.object(main.solver, "solve_expression", return_value=_MOCK_SOLVER_RESULT):
+        resp = _client.post("/convert", files={"file": ("b.png", _png_bytes(), "image/png")})
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["status"] == "success"
+    assert data["latex"] == "x^2 + 1"
+    assert data["source"] == "gemini"
+    assert data["confidence"] is None
+
+
+def test_convert_falls_back_when_classifier_disabled():
+    class DisabledClassifier:
+        def is_loaded(self): return False
+        def classify(self, _): return None
+
+    mock_response = MagicMock()
+    mock_response.text = "y"
+
+    with patch.object(main, "classifier", DisabledClassifier()), \
+         patch.object(main._client.models, "generate_content", return_value=mock_response), \
+         patch.object(main.solver, "solve_expression", return_value=_MOCK_SOLVER_RESULT):
+        resp = _client.post("/convert", files={"file": ("b.png", _png_bytes(), "image/png")})
+
+    assert resp.json()["source"] == "gemini"
+    assert resp.json()["confidence"] is None
