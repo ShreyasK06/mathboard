@@ -4,16 +4,18 @@
 
 MathBoard lets you draw a mathematical expression on a canvas. It sends the drawing to Google Gemini for OCR (handwriting recognition), converts the result to LaTeX, and passes it to a SymPy-based symbolic solver. The result (LaTeX + solution) is displayed below the canvas.
 
-A second tab — **Dataset Explorer** — shows an interactive R Shiny dashboard exploring the HASYv2 handwritten math symbol dataset (168,233 samples, 369 symbol classes).
+A second tab — **Model & Activity** — is an R Shiny dashboard showing live request stats, the trained classifier's confusion matrix, solver agreement, and local-vs-Gemini breakdowns.
+
+Optional R Plumber sidecar cross-checks every solved expression with Ryacas; the UI shows ✓ when SymPy and Ryacas agree, ⚠ when they don't.
 
 ## Prerequisites
 
 | Tool | Version | Purpose |
 |---|---|---|
-| Python | 3.10+ | FastAPI backend + SymPy solver |
-| R | 4.x | Shiny dataset explorer (optional) |
+| Python | 3.10+ | FastAPI backend + SymPy solver + local CNN |
+| R | 4.x | Plumber cross-solver + Shiny dashboard (both optional) |
 | Node.js | 18+ | React frontend |
-| Gemini API key | free | Handwriting OCR |
+| Gemini API key | free | Handwriting OCR fallback |
 
 ## First-time setup
 
@@ -47,17 +49,19 @@ cd frontend/mathboard
 npm install
 ```
 
-### 4. Install R packages (only if you want the Dataset Explorer tab)
+### 4. Install R packages (only if you want Plumber cross-solver and/or the dashboard)
 
 Open an R console and run:
 
 ```r
 install.packages(c(
-  "shiny", "shinydashboard", "ggplot2", "dplyr"
+  "shiny", "shinydashboard", "ggplot2", "dplyr",
+  "plumber", "Ryacas", "jsonlite",
+  "DBI", "RSQLite", "testthat"
 ))
 ```
 
-The core math solver does not need R — it runs on Python/SymPy. R is only required for the optional HASYv2 dataset explorer.
+The core math solver does not need R — it runs on Python/SymPy. R is only required for the optional Ryacas cross-check and the dashboard.
 
 ### 5. Download HASYv2 dataset (for Dataset Explorer tab)
 
@@ -75,7 +79,7 @@ The Shiny app will show a friendly error message if the dataset is missing — t
 
 ## Running the app
 
-You need **two terminals** (three if you want the Dataset Explorer tab).
+You need **two terminals** for the core experience. Up to **two more** are optional.
 
 **Terminal 1 — React frontend:**
 ```
@@ -84,7 +88,7 @@ npm run dev
 ```
 → Open http://localhost:5173
 
-**Terminal 2 — FastAPI backend (Gemini OCR + SymPy solver):**
+**Terminal 2 — FastAPI backend (Gemini OCR + SymPy + local CNN):**
 ```
 cd backend
 .venv\Scripts\activate
@@ -92,14 +96,22 @@ uvicorn main:app --reload
 ```
 → Runs at http://localhost:8000
 
-**Terminal 3 (optional) — R Shiny dataset explorer:**
+**Terminal 3 (optional) — R Plumber cross-solver:**
+```
+cd backend
+Rscript run_plumber.r
+```
+→ Runs at http://127.0.0.1:8003. When this is up, every solved expression is
+cross-checked by Ryacas; the UI shows ✓ on agreement or ⚠ on disagreement.
+
+**Terminal 4 (optional) — R Shiny dashboard ("Model & Activity" tab):**
 ```
 cd backend
 Rscript run_shiny.r
 ```
-→ Runs at http://localhost:3838
+→ Runs at http://localhost:3838. Powers the React tab "Model & Activity" via iframe.
 
-The Math Solver tab works without Terminal 3; only the Dataset Explorer tab needs it.
+The Math Solver tab works without Terminals 3 or 4. Each is independently optional.
 
 ---
 
@@ -123,11 +135,17 @@ See `backend/ml/README.md` for tuning details.
 
 ## Running tests
 
-**Python tests (45 tests across solver, API, classifier, training):**
+**Python tests (~70 tests across solver, API, classifier, datasets, IDX parser, activity log, ryacas client, training):**
 ```
 cd backend
 .venv\Scripts\activate
 pytest tests/ -v
+```
+
+**R tests (LaTeX→Yacas conversion + solver):**
+```
+cd backend
+Rscript -e "testthat::test_file('tests/test_plumber.R')"
 ```
 
 ---
@@ -138,6 +156,7 @@ pytest tests/ -v
 |---|---|
 | "Gemini API key not configured" | Check `backend/.env` has a valid key |
 | "Backend offline" banner in the UI | Start Terminal 2 (`uvicorn main:app --reload`) |
-| Dataset Explorer shows "Dataset not found" | Download HASYv2 — see step 5 above |
-| Dataset Explorer iframe is blank | Start Terminal 3 (`Rscript run_shiny.r`) |
+| Cross-check line never appears | Start Terminal 3 (`Rscript run_plumber.r`) |
+| Model & Activity iframe shows nothing | Start Terminal 4 (`Rscript run_shiny.r`) |
+| Dashboard says "Local classifier not trained" | Run `python -m ml.train` from `backend/` |
 | KaTeX renders raw LaTeX text | Gemini returned non-LaTeX; try drawing more clearly |
