@@ -431,6 +431,8 @@ export default function App() {
         latexResult: solData.latex_result || "",
         source: data.source || "gemini",
         confidence: typeof data.confidence === "number" ? data.confidence : null,
+        agreement: solData.agreement || "ryacas_unavailable",
+        ryacasLatex: (solData.ryacas && solData.ryacas.latex_result) || "",
       });
     } catch (err) {
       const isNetwork =
@@ -521,7 +523,7 @@ export default function App() {
           className={`nav-tab ${activeTab === "explorer" ? "active" : ""}`}
           onClick={() => setActiveTab("explorer")}
         >
-          Dataset Explorer
+          Model & Activity
         </button>
       </nav>
 
@@ -752,6 +754,24 @@ export default function App() {
                       <div className="solution-text">{convertResult.solution}</div>
                     )}
                   </div>
+
+                  {convertResult.agreement === "match" && (
+                    <div className="agreement agreement-match">
+                      ✓ Cross-checked with Ryacas (results agree)
+                    </div>
+                  )}
+                  {convertResult.agreement === "differ" && convertResult.ryacasLatex && (
+                    <div className="agreement agreement-differ">
+                      ⚠ Ryacas got a different answer:&nbsp;
+                      <span
+                        dangerouslySetInnerHTML={{
+                          __html: katex.renderToString(convertResult.ryacasLatex, {
+                            throwOnError: false,
+                          }),
+                        }}
+                      />
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -764,7 +784,7 @@ export default function App() {
           <iframe
             className="explorer-frame"
             src={SHINY_URL}
-            title="HASYv2 Dataset Explorer"
+            title="MathBoard Model & Activity Dashboard"
           />
         </section>
       )}

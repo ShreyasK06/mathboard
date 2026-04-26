@@ -969,3 +969,36 @@ details[open] .steps-summary::before {
 [data-theme="dark"] .source-badge.source-local {
   background: rgba(99, 102, 241, 0.18);
 }
+
+/* ---------- Ryacas agreement line ---------- */
+.agreement {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin-top: 4px;
+  align-self: flex-start;
+}
+
+.agreement-match {
+  color: #15803d;
+  background: rgba(34, 197, 94, 0.10);
+  border: 1px solid rgba(34, 197, 94, 0.35);
+}
+
+.agreement-differ {
+  color: #b45309;
+  background: rgba(245, 158, 11, 0.10);
+  border: 1px solid rgba(245, 158, 11, 0.45);
+}
+
+[data-theme="dark"] .agreement-match {
+  background: rgba(34, 197, 94, 0.18);
+}
+
+[data-theme="dark"] .agreement-differ {
+  background: rgba(245, 158, 11, 0.20);
+}
