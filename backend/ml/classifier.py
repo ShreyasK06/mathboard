@@ -11,16 +11,19 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-import torch
-import torch.nn.functional as F
-
-from ml.model import SymbolCNN
-from ml.preprocessing import (
-    binarize_and_count_components,
-    crop_to_bbox,
-    normalize,
-    resize_to_32,
-)
+try:
+    import torch
+    import torch.nn.functional as F
+    from ml.model import SymbolCNN
+    from ml.preprocessing import (
+        binarize_and_count_components,
+        crop_to_bbox,
+        normalize,
+        resize_to_32,
+    )
+    _TORCH_AVAILABLE = True
+except ImportError:
+    _TORCH_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -44,10 +47,13 @@ class SymbolClassifier:
         metrics_path: Path,
     ) -> None:
         self._enabled = False
-        self._model: Optional[SymbolCNN] = None
+        self._model = None
         self._classes: list[str] = []
         self._train_mean: float = 0.5
         self._train_std: float = 0.5
+        if not _TORCH_AVAILABLE:
+            logger.warning("Local classifier disabled (torch not installed).")
+            return
         try:
             self._load(model_path, classes_path, metrics_path)
             self._enabled = True
@@ -74,7 +80,7 @@ class SymbolClassifier:
     def is_loaded(self) -> bool:
         return self._enabled
 
-    def _forward(self, tensor: torch.Tensor) -> torch.Tensor:
+    def _forward(self, tensor):
         """Override-able for testing."""
         assert self._model is not None
         with torch.no_grad():

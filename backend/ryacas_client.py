@@ -1,4 +1,7 @@
-"""HTTP client for the R Plumber cross-solver. Never raises."""
+"""HTTP client for the R Plumber symbolic solver — Ryacas is the primary
+solver path; main.py falls back to SymPy only if Plumber is unreachable.
+The function is still named ``cross_solve`` for backwards compatibility.
+Never raises."""
 
 import logging
 import time

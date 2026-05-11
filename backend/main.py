@@ -1,18 +1,12 @@
-"""
-MathBoard FastAPI backend.
-
-Tries a local SymbolClassifier first; falls back to Google Gemini if the
-classifier is disabled, indecisive, or sees a multi-symbol input. The
-recognized LaTeX is then solved by SymPy and (in parallel) cross-checked by
-Ryacas via the R Plumber API. Each request is appended to activity.db.
-"""
 
 import concurrent.futures
 import os
 import re
 import sys
 import time
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, UploadFile
@@ -63,6 +57,20 @@ OCR_PROMPT = (
     "raw LaTeX string. Do not include any markdown formatting, backticks, or "
     "conversational text. Do not include \\( or \\) wrappers. Just the math."
 )
+
+SOLVE_PROMPT = (
+    "You are a math solver used as an independent cross-check. "
+    "Solve the following expression and return ONLY the final answer in LaTeX. "
+    "Rules:\n"
+    "- For an equation, return just the value(s) of the unknown — no 'x =' prefix.\n"
+    "- For multiple solutions, separate with commas (e.g., '-2, 2').\n"
+    "- For simplification or differentiation, return the simplified form only.\n"
+    "- For indefinite integration, omit the constant of integration.\n"
+    "- No explanation, no $, no \\( \\), no markdown, no backticks.\n\n"
+    "Expression: {latex}"
+)
+
+GEMINI_SOLVE_TIMEOUT_S = 6.0
 
 app = FastAPI(title="MathBoard Backend")
 app.add_middleware(
@@ -120,14 +128,60 @@ def _normalize_for_compare(s: str | None) -> str:
     return re.sub(r"\s+", "", s)
 
 
-def _compute_agreement(sympy_latex: str | None, ryacas_result) -> str:
-    if ryacas_result is None:
-        return "ryacas_unavailable"
-    if ryacas_result.status != "success":
-        return "ryacas_error"
-    if _normalize_for_compare(sympy_latex) == _normalize_for_compare(ryacas_result.latex_result):
+def _as_solution_set(s: str | None) -> frozenset[str]:
+    """Split a comma-separated solution list into a whitespace-normalized set
+    so '-2, 2' compares equal to '2,-2'."""
+    if not s:
+        return frozenset()
+    return frozenset(_normalize_for_compare(p) for p in s.split(",") if p.strip())
+
+
+def _compute_agreement(primary_latex: str | None, crosscheck_result) -> str:
+    """Compare the displayed (primary) answer against the cross-checker.
+    Returns 'match' | 'differ' | 'crosscheck_unavailable' | 'crosscheck_error'.
+    """
+    if crosscheck_result is None:
+        return "crosscheck_unavailable"
+    if crosscheck_result.status != "success":
+        return "crosscheck_error"
+    if _as_solution_set(primary_latex) == _as_solution_set(crosscheck_result.latex_result):
         return "match"
     return "differ"
+
+
+@dataclass
+class GeminiSolveResult:
+    status: str                 # "success" | "failed"
+    solution: Optional[str]
+    latex_result: Optional[str]
+    error: Optional[str]
+
+
+def solve_with_gemini(latex_string: str) -> Optional[GeminiSolveResult]:
+    """Ask Gemini to solve the expression independently. Returns None when the
+    API key isn't configured; never raises."""
+    if _client is None or not GEMINI_API_KEY:
+        return None
+    try:
+        response = _client.models.generate_content(
+            model=GEMINI_MODEL,
+            contents=[SOLVE_PROMPT.format(latex=latex_string)],
+        )
+        raw = (response.text or "").strip()
+    except Exception as exc:
+        return GeminiSolveResult(
+            status="failed", solution=None, latex_result=None, error=str(exc)
+        )
+    cleaned = _strip_latex_fences(raw)
+    # Strip a leading "x =" / "x=" prefix Gemini sometimes adds despite the prompt.
+    cleaned = re.sub(r"^[a-zA-Z]\s*=\s*", "", cleaned).strip()
+    if not cleaned:
+        return GeminiSolveResult(
+            status="failed", solution=None, latex_result=None, error="empty response"
+        )
+    return GeminiSolveResult(
+        status="success", solution=cleaned, latex_result=cleaned, error=None
+    )
 
 
 @app.get("/health")
@@ -189,13 +243,39 @@ async def convert_equation(file: UploadFile = File(...)):
         confidence = None
         print(f"[Gemini Result] {latex_string}", flush=True)
 
-    # Solve in parallel: SymPy + Ryacas.
-    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
-        sympy_future = ex.submit(solver.solve_expression, latex_string)
+    # Solve in parallel: Ryacas (primary), Gemini (cross-check), SymPy (fallback
+    # for when Ryacas can't be reached). SymPy also supplies the operation_label
+    # and step list we display either way.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex:
         ryacas_future = ex.submit(ryacas_client.cross_solve, latex_string)
-        solution_data = sympy_future.result()
+        gemini_future = ex.submit(solve_with_gemini, latex_string)
+        sympy_future = ex.submit(solver.solve_expression, latex_string)
         ryacas_result = ryacas_future.result()
+        sympy_result = sympy_future.result()
+        try:
+            gemini_result = gemini_future.result(timeout=GEMINI_SOLVE_TIMEOUT_S)
+        except concurrent.futures.TimeoutError:
+            gemini_result = GeminiSolveResult(
+                status="failed", solution=None, latex_result=None,
+                error="Gemini cross-check timed out",
+            )
 
+    # Pick the displayed answer: Ryacas if it succeeded, otherwise SymPy fallback.
+    if ryacas_result is not None and ryacas_result.status == "success":
+        primary_solver = "ryacas"
+        solution_data = {
+            "status": "success",
+            "operation": sympy_result.get("operation"),
+            "operation_label": sympy_result.get("operation_label"),
+            "steps": sympy_result.get("steps", []),
+            "solution": ryacas_result.solution,
+            "latex_result": ryacas_result.latex_result,
+        }
+    else:
+        primary_solver = "sympy"
+        solution_data = sympy_result
+
+    solution_data["primary_solver"] = primary_solver
     solution_data["ryacas"] = (
         None if ryacas_result is None
         else {
@@ -204,8 +284,17 @@ async def convert_equation(file: UploadFile = File(...)):
             "latex_result": ryacas_result.latex_result,
         }
     )
+    solution_data["crosscheck"] = (
+        None if gemini_result is None
+        else {
+            "solver": "gemini",
+            "status": gemini_result.status,
+            "solution": gemini_result.solution,
+            "latex_result": gemini_result.latex_result,
+        }
+    )
     solution_data["agreement"] = _compute_agreement(
-        solution_data.get("latex_result"), ryacas_result
+        solution_data.get("latex_result"), gemini_result
     )
 
     duration_ms = int((time.monotonic() - t0) * 1000)
@@ -217,8 +306,9 @@ async def convert_equation(file: UploadFile = File(...)):
         confidence=confidence,
         num_components=local_result.num_components if local_result else None,
         operation=solution_data.get("operation"),
-        sympy_solution=solution_data.get("latex_result"),
-        ryacas_solution=(solution_data["ryacas"] or {}).get("latex_result"),
+        primary_solver=primary_solver,
+        primary_solution=solution_data.get("latex_result"),
+        crosscheck_solution=(solution_data["crosscheck"] or {}).get("latex_result"),
         agreement=solution_data["agreement"],
         duration_ms=duration_ms,
         image_bytes=image_bytes,

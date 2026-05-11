@@ -1,0 +1,12 @@
+# Production dependencies for Render deployment (no torch — ML model not deployed).
+# The local CNN classifier is auto-disabled when artifacts are absent;
+# the server falls through to Gemini OCR automatically.
+fastapi
+uvicorn[standard]
+python-multipart
+google-genai
+python-dotenv
+sympy
+Pillow
+requests
+numpy

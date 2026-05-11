@@ -9,3 +9,4 @@ Pillow
 pytest
 httpx
 torch
+numpy

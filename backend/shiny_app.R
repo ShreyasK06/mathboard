@@ -49,20 +49,178 @@ read_confusion <- function() {
 }
 
 ui <- dashboardPage(
-  skin = "blue",
-  dashboardHeader(title = "MathBoard — Model & Activity"),
+  skin = "black",
+  dashboardHeader(title = "MathBoard — Activity"),
   dashboardSidebar(disable = TRUE),
   dashboardBody(
-    tags$head(tags$style(HTML(
-      ".content-wrapper { background: #f4f6f9; }
-       .small-box .icon-large { right: 14px; }
-       .badge-local { color: #4f46e5; font-weight: 700; }
-       .badge-gemini { color: #64748b; font-weight: 700; }
-       .agree-match { color: #15803d; font-weight: 700; }
-       .agree-differ { color: #b45309; font-weight: 700; }
-       .agree-na { color: #94a3b8; }
-       .thumb { width: 48px; height: 48px; border: 1px solid #e6e8ef; border-radius: 4px; }"
-    ))),
+    tags$head(
+      tags$link(rel = "preconnect", href = "https://fonts.googleapis.com"),
+      tags$link(rel = "stylesheet",
+        href = "https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"),
+      tags$style(HTML("
+        :root {
+          --paper:   #f1ece1;
+          --paper-2: #e8e2d3;
+          --paper-3: #ddd5c2;
+          --ink:     #14130f;
+          --ink-2:   #2a2723;
+          --ink-3:   #6b6557;
+          --ink-4:   #97907f;
+          --rule:    #c8c0ad;
+          --accent:  #d8ff3a;
+          --serif:   'Instrument Serif', Georgia, serif;
+          --sans:    'Geist', system-ui, sans-serif;
+          --mono:    'JetBrains Mono', monospace;
+        }
+
+        body, .content-wrapper, .main-sidebar, .main-header, input, select, textarea, button {
+          font-family: var(--sans) !important;
+          font-size: 14px !important;
+        }
+
+        body { background: var(--paper) !important; }
+        .content-wrapper { background: var(--paper) !important; }
+        .content { padding: 20px !important; }
+
+        .main-header .logo {
+          background: var(--ink) !important;
+          color: var(--paper) !important;
+          font-family: var(--serif) !important;
+          font-style: italic !important;
+          font-size: 1rem !important;
+          letter-spacing: 0 !important;
+          border-bottom: none !important;
+        }
+        .main-header .navbar { background: var(--ink) !important; border-bottom: none !important; }
+        .main-header .logo:hover { background: var(--ink-2) !important; }
+        .main-header .navbar .sidebar-toggle { color: rgba(241,236,225,.6) !important; }
+        .main-header .navbar .sidebar-toggle:hover { color: var(--paper) !important; background: transparent !important; }
+
+        .small-box {
+          border-radius: 4px !important;
+          box-shadow: none !important;
+          border: 1px solid var(--rule) !important;
+          background: var(--paper-2) !important;
+          color: var(--ink) !important;
+        }
+        .small-box h3 {
+          font-family: var(--serif) !important;
+          font-style: italic !important;
+          font-size: 2.2rem !important;
+          font-weight: 400 !important;
+          letter-spacing: -0.02em !important;
+          color: var(--ink) !important;
+        }
+        .small-box p {
+          font-family: var(--mono) !important;
+          font-size: 0.68rem !important;
+          font-weight: 400 !important;
+          text-transform: uppercase !important;
+          letter-spacing: 0.08em !important;
+          color: var(--ink-3) !important;
+          opacity: 1 !important;
+        }
+        .small-box .icon-large { right: 14px !important; color: var(--rule) !important; opacity: 1 !important; }
+
+        .box {
+          border-radius: 4px !important;
+          border: 1px solid var(--rule) !important;
+          box-shadow: none !important;
+          background: var(--paper-2) !important;
+        }
+        .box-header {
+          border-bottom: 1px solid var(--rule) !important;
+          padding: 12px 16px !important;
+          background: var(--paper-2) !important;
+        }
+        .box-title {
+          font-family: var(--mono) !important;
+          font-size: 0.7rem !important;
+          font-weight: 400 !important;
+          letter-spacing: 0.08em !important;
+          text-transform: uppercase !important;
+          color: var(--ink-3) !important;
+        }
+        .box-body { padding: 16px !important; background: var(--paper) !important; }
+        .box.box-primary > .box-header,
+        .box.box-info    > .box-header,
+        .box.box-success > .box-header,
+        .box.box-warning > .box-header,
+        .box.box-danger  > .box-header { border-top: none !important; }
+
+        .nav-tabs-custom {
+          border-radius: 4px !important;
+          box-shadow: none !important;
+          border: 1px solid var(--rule) !important;
+          background: var(--paper) !important;
+        }
+        .nav-tabs-custom > .nav-tabs { background: var(--paper-2) !important; border-bottom: 1px solid var(--rule) !important; }
+        .nav-tabs-custom > .nav-tabs > li > a {
+          font-family: var(--mono) !important;
+          font-size: 0.72rem !important;
+          font-weight: 400 !important;
+          letter-spacing: 0.06em !important;
+          text-transform: uppercase !important;
+          color: var(--ink-4) !important;
+          border: none !important;
+          border-radius: 0 !important;
+        }
+        .nav-tabs-custom > .nav-tabs > li.active > a {
+          color: var(--ink) !important;
+          border-top: 2px solid var(--ink) !important;
+          background: var(--paper) !important;
+          font-weight: 600 !important;
+        }
+        .nav-tabs-custom > .tab-content { padding: 16px !important; background: var(--paper) !important; }
+
+        .table { font-size: 0.82rem !important; color: var(--ink) !important; background: var(--paper) !important; }
+        .table > thead > tr > th {
+          font-family: var(--mono) !important;
+          font-size: 0.68rem !important;
+          font-weight: 400 !important;
+          text-transform: uppercase !important;
+          letter-spacing: 0.08em !important;
+          color: var(--ink-4) !important;
+          border-bottom: 1px solid var(--rule) !important;
+          padding: 8px 12px !important;
+          background: var(--paper-2) !important;
+        }
+        .table > tbody > tr > td { padding: 10px 12px !important; vertical-align: middle !important; border-color: var(--rule) !important; color: var(--ink) !important; }
+        .table-striped > tbody > tr:nth-child(odd) > td { background: var(--paper-2) !important; }
+        .table-condensed > thead > tr > th, .table-condensed > tbody > tr > td { padding: 8px 12px !important; }
+
+        code {
+          font-family: var(--mono) !important;
+          font-size: 0.78rem !important;
+          background: rgba(20,19,15,0.07) !important;
+          color: var(--ink-2) !important;
+          padding: 2px 6px !important;
+          border-radius: 3px !important;
+          border: none !important;
+        }
+
+        .badge-local {
+          display: inline-block; color: var(--ink); font-family: var(--mono);
+          font-weight: 600; background: var(--accent); padding: 2px 9px;
+          border-radius: 20px; font-size: 0.7rem; letter-spacing: 0.04em;
+        }
+        .badge-gemini {
+          display: inline-block; color: var(--ink-3); font-family: var(--mono);
+          font-weight: 400; background: var(--paper-3); padding: 2px 9px;
+          border-radius: 20px; font-size: 0.7rem; letter-spacing: 0.04em;
+          border: 1px solid var(--rule);
+        }
+        .agree-match  { color: #15803d; font-weight: 600; }
+        .agree-differ { color: #b45309; font-weight: 600; }
+        .agree-na     { color: var(--ink-4); }
+
+        .thumb { width: 44px; height: 44px; border: 1px solid var(--rule); border-radius: 4px; object-fit: contain; background: var(--paper); }
+
+        ::-webkit-scrollbar { width: 5px; height: 5px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--rule); border-radius: 3px; }
+      "))
+    ),
     fluidRow(
       valueBoxOutput("card_local_rate"),
       valueBoxOutput("card_accepted_acc"),
@@ -90,7 +248,7 @@ ui <- dashboardPage(
               plotOutput("agree_over_time", height = "320px"))
         ),
         fluidRow(
-          box(title = "Disagreements (SymPy != Ryacas)", width = 12, status = "danger",
+          box(title = "Disagreements (Primary != Gemini)", width = 12, status = "danger",
               uiOutput("disagree_table_ui"))
         )
       ),
@@ -168,14 +326,16 @@ server <- function(input, output, session) {
                             "match" = "agree-match",
                             "differ" = "agree-differ",
                             "agree-na")
+      primary_label <- if (is.null(r$primary_solver) || is.na(r$primary_solver)) "--" else toupper(r$primary_solver)
       tags$tr(
         tags$td(format(as.POSIXct(r$timestamp, tz = "UTC"), "%H:%M:%S")),
         tags$td(tags$img(src = thumb_src, class = "thumb")),
         tags$td(tags$code(r$recognized_latex)),
         tags$td(class = src_class, toupper(r$source)),
         tags$td(if (!is.na(r$confidence)) sprintf("%.2f", r$confidence) else "--"),
-        tags$td(if (!is.na(r$sympy_solution)) tags$code(r$sympy_solution) else "--"),
-        tags$td(if (!is.na(r$ryacas_solution)) tags$code(r$ryacas_solution) else "--"),
+        tags$td(primary_label),
+        tags$td(if (!is.na(r$primary_solution)) tags$code(r$primary_solution) else "--"),
+        tags$td(if (!is.na(r$crosscheck_solution)) tags$code(r$crosscheck_solution) else "--"),
         tags$td(class = agree_class, r$agreement)
       )
     })
@@ -184,7 +344,8 @@ server <- function(input, output, session) {
       tags$thead(tags$tr(
         tags$th("Time"), tags$th("Thumb"), tags$th("Recognized"),
         tags$th("Source"), tags$th("Conf"),
-        tags$th("SymPy"), tags$th("Ryacas"), tags$th("Agreement")
+        tags$th("Primary engine"), tags$th("Primary"),
+        tags$th("Gemini cross-check"), tags$th("Agreement")
       )),
       tags$tbody(rows)
     )
@@ -208,7 +369,7 @@ server <- function(input, output, session) {
     df2$pred <- factor(df2$pred, levels = df_top$true)
     ggplot(df2, aes(pred, true, fill = count)) +
       geom_tile() +
-      scale_fill_gradient(low = "white", high = "#4f46e5") +
+      scale_fill_gradient(low = "#f1ece1", high = "#14130f") +
       theme_minimal(base_size = 11) +
       theme(axis.text.x = element_text(angle = 60, hjust = 1)) +
       labs(x = "Predicted", y = "True", fill = "Count")
@@ -226,7 +387,7 @@ server <- function(input, output, session) {
       arrange(desc(count)) %>% head(30)
     df$class <- factor(df$class, levels = rev(df$class))
     ggplot(df, aes(class, accuracy)) +
-      geom_col(fill = "#4f46e5") +
+      geom_col(fill = "#14130f") +
       coord_flip() + theme_minimal(base_size = 11) +
       labs(x = NULL, y = "Per-class accuracy") +
       ylim(0, 1)
@@ -238,7 +399,7 @@ server <- function(input, output, session) {
     df <- df %>% filter(source == "local", !is.na(confidence))
     if (nrow(df) == 0) { plot.new(); return() }
     ggplot(df, aes(confidence)) +
-      geom_histogram(binwidth = 0.05, fill = "#4f46e5", boundary = 0) +
+      geom_histogram(binwidth = 0.05, fill = "#14130f", boundary = 0) +
       scale_x_continuous(limits = c(0, 1)) + theme_minimal(base_size = 11) +
       labs(x = "Confidence", y = "Count")
   })
@@ -252,6 +413,8 @@ server <- function(input, output, session) {
       geom_bar(stat = "identity") +
       scale_fill_manual(values = c(
         match = "#15803d", differ = "#b45309",
+        crosscheck_unavailable = "#94a3b8", crosscheck_error = "#dc2626",
+        # Tolerate rows from before the rename so old data still plots.
         ryacas_unavailable = "#94a3b8", ryacas_error = "#dc2626"
       )) +
       theme_minimal(base_size = 12) + labs(x = NULL, y = "Requests", fill = "Agreement")
@@ -266,15 +429,15 @@ server <- function(input, output, session) {
     tags$table(class = "table table-striped table-condensed",
       tags$thead(tags$tr(
         tags$th("Time"), tags$th("Recognized"),
-        tags$th("SymPy"), tags$th("Ryacas")
+        tags$th("Primary"), tags$th("Gemini cross-check")
       )),
       tags$tbody(lapply(seq_len(nrow(df)), function(i) {
         r <- df[i, ]
         tags$tr(
           tags$td(format(as.POSIXct(r$timestamp, tz = "UTC"), "%H:%M:%S")),
           tags$td(tags$code(r$recognized_latex)),
-          tags$td(tags$code(r$sympy_solution)),
-          tags$td(tags$code(r$ryacas_solution))
+          tags$td(tags$code(r$primary_solution)),
+          tags$td(tags$code(r$crosscheck_solution))
         )
       }))
     )
@@ -287,7 +450,7 @@ server <- function(input, output, session) {
     daily <- df %>% group_by(date, source) %>% summarise(n = n(), .groups = "drop")
     ggplot(daily, aes(date, n, color = source)) +
       geom_line(linewidth = 1) + geom_point(size = 2) +
-      scale_color_manual(values = c(local = "#4f46e5", gemini = "#64748b")) +
+      scale_color_manual(values = c(local = "#14130f", gemini = "#97907f")) +
       theme_minimal(base_size = 12) + labs(x = NULL, y = "Requests", color = "Source")
   })
 
@@ -297,7 +460,7 @@ server <- function(input, output, session) {
     top <- df %>% count(recognized_latex, sort = TRUE) %>% head(10)
     top$recognized_latex <- factor(top$recognized_latex, levels = rev(top$recognized_latex))
     ggplot(top, aes(recognized_latex, n)) +
-      geom_col(fill = "#15803d") + coord_flip() + theme_minimal(base_size = 11) +
+      geom_col(fill = "#14130f") + coord_flip() + theme_minimal(base_size = 11) +
       labs(x = NULL, y = "Count")
   })
 
@@ -307,7 +470,7 @@ server <- function(input, output, session) {
     top <- df %>% count(recognized_latex, sort = TRUE) %>% head(10)
     top$recognized_latex <- factor(top$recognized_latex, levels = rev(top$recognized_latex))
     ggplot(top, aes(recognized_latex, n)) +
-      geom_col(fill = "#b45309") + coord_flip() + theme_minimal(base_size = 11) +
+      geom_col(fill = "#97907f") + coord_flip() + theme_minimal(base_size = 11) +
       labs(x = NULL, y = "Count")
   })
 }

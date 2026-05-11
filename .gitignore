@@ -19,10 +19,11 @@ backend/data/
 # Brainstorming artifacts
 .superpowers/
 
-# IDE
+# IDE / local tooling
 .vscode/
 .idea/
 .Rproj.user/
+.claude/
 
 # OS
 .DS_Store

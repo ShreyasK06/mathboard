@@ -45,32 +45,100 @@ run_yacas <- function(expr_str) {
   trimws(as.character(yac(expr_str)))
 }
 
+# Split a string on commas that are at the top level (not inside parens or braces).
+split_top_level_commas <- function(s) {
+  out <- character()
+  buf <- ""
+  depth <- 0L
+  chars <- strsplit(s, "", fixed = TRUE)[[1]]
+  for (ch in chars) {
+    if (ch == "(" || ch == "{" || ch == "[") {
+      depth <- depth + 1L; buf <- paste0(buf, ch)
+    } else if (ch == ")" || ch == "}" || ch == "]") {
+      depth <- depth - 1L; buf <- paste0(buf, ch)
+    } else if (ch == "," && depth == 0L) {
+      out <- c(out, buf); buf <- ""
+    } else {
+      buf <- paste0(buf, ch)
+    }
+  }
+  if (nchar(buf) > 0) out <- c(out, buf)
+  out
+}
+
+# Parse Yacas Solve output like "{x==7}" or "{x==2,x==(-2)}" into a vector of
+# raw value strings ("7", "2", "-2"). If Yacas couldn't solve, returns the
+# input unchanged in a single-element vector.
+parse_solve_values <- function(raw, var = "x") {
+  s <- trimws(raw)
+  if (!grepl("^\\{.*\\}$", s)) return(s)
+  inner <- substr(s, 2, nchar(s) - 1L)
+  parts <- split_top_level_commas(inner)
+  vals <- vapply(parts, function(p) {
+    p <- trimws(p)
+    p <- sub(paste0("^", var, "\\s*==\\s*"), "", p, perl = TRUE)
+    # Strip a single pair of fully-enclosing parens, e.g. "(-2)" -> "-2"
+    if (grepl("^\\(.+\\)$", p)) {
+      depth <- 0L; encloses <- TRUE
+      chars <- strsplit(p, "", fixed = TRUE)[[1]]
+      for (i in seq_along(chars)) {
+        if (chars[i] == "(") depth <- depth + 1L
+        else if (chars[i] == ")") depth <- depth - 1L
+        if (depth == 0L && i < length(chars)) { encloses <- FALSE; break }
+      }
+      if (encloses) p <- substr(p, 2, nchar(p) - 1L)
+    }
+    trimws(p)
+  }, character(1), USE.NAMES = FALSE)
+  vals
+}
+
+# Take a raw yacas value string and produce its LaTeX form via TeXForm.
+# Falls back to the raw string if TeXForm fails.
+to_tex <- function(value_str) {
+  out <- tryCatch(run_yacas(sprintf("TeXForm(%s)", value_str)),
+                  error = function(e) value_str)
+  if (length(out) == 0 || is.na(out) || nchar(out) == 0) return(value_str)
+  out
+}
+
 solve_with_ryacas <- function(latex) {
   tryCatch({
     op <- detect_operation(latex)
     yacas_expr <- latex_to_yacas(latex)
     if (op == "solve") {
       sides <- strsplit(yacas_expr, "=", fixed = TRUE)[[1]]
-      lhs <- sides[1]; rhs <- sides[2]
-      sol <- run_yacas(sprintf("Solve(%s == %s, x)", lhs, rhs))
+      lhs <- trimws(sides[1]); rhs <- trimws(sides[2])
+      raw <- run_yacas(sprintf("Solve(%s == %s, x)", lhs, rhs))
+      vals <- parse_solve_values(raw, var = "x")
+      solution <- paste(vals, collapse = ", ")
+      latex_result <- paste(vapply(vals, to_tex, character(1)), collapse = ", ")
     } else if (op == "integrate") {
       body <- gsub("int", "", yacas_expr, fixed = TRUE)
       body <- trimws(gsub("dx$", "", body))
-      sol <- run_yacas(sprintf("Integrate(x) %s", body))
+      raw <- run_yacas(sprintf("Integrate(x) %s", body))
+      solution <- raw
+      latex_result <- to_tex(raw)
     } else if (op == "differentiate") {
       body <- gsub("frac\\{d\\}\\{dx\\}", "", yacas_expr, perl = TRUE)
       body <- gsub("d/dx", "", body, fixed = TRUE)
-      sol <- run_yacas(sprintf("D(x) %s", trimws(body)))
+      raw <- run_yacas(sprintf("D(x) %s", trimws(body)))
+      solution <- raw
+      latex_result <- to_tex(raw)
     } else if (op == "limit") {
-      sol <- run_yacas(sprintf("Limit(x, 0) %s", yacas_expr))
+      raw <- run_yacas(sprintf("Limit(x, 0) %s", yacas_expr))
+      solution <- raw
+      latex_result <- to_tex(raw)
     } else {
-      sol <- run_yacas(sprintf("Simplify(%s)", yacas_expr))
+      raw <- run_yacas(sprintf("Simplify(%s)", yacas_expr))
+      solution <- raw
+      latex_result <- to_tex(raw)
     }
     list(
       status = "success",
       operation = op,
-      solution = sol,
-      latex_result = sol
+      solution = solution,
+      latex_result = latex_result
     )
   }, error = function(e) {
     list(status = "failed", error = conditionMessage(e))

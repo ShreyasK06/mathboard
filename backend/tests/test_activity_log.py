@@ -24,7 +24,7 @@ def test_creates_schema_on_first_use(tmp_path):
     activity_log.log_request(
         db_path=db,
         source="local", recognized_latex="x", confidence=0.9, num_components=1,
-        operation="simplify", sympy_solution="x", ryacas_solution="x",
+        operation="simplify", primary_solution="x", crosscheck_solution="x",
         agreement="match", duration_ms=42, image_bytes=_png_bytes(),
     )
     assert db.exists()
@@ -40,7 +40,7 @@ def test_log_then_read_roundtrip(tmp_path):
     activity_log.log_request(
         db_path=db,
         source="gemini", recognized_latex="x+5=12", confidence=None, num_components=4,
-        operation="solve", sympy_solution="7", ryacas_solution="7",
+        operation="solve", primary_solution="7", crosscheck_solution="7",
         agreement="match", duration_ms=812, image_bytes=_png_bytes(),
     )
     with _open(db) as c:
@@ -57,7 +57,7 @@ def test_thumbnail_is_64x64(tmp_path):
     activity_log.log_request(
         db_path=db,
         source="local", recognized_latex="x", confidence=0.9, num_components=1,
-        operation="simplify", sympy_solution=None, ryacas_solution=None,
+        operation="simplify", primary_solution=None, crosscheck_solution=None,
         agreement="match", duration_ms=42, image_bytes=_png_bytes(size=(200, 200)),
     )
     with _open(db) as c:
@@ -72,8 +72,8 @@ def test_cap_enforced(tmp_path):
     for i in range(15):
         activity_log.log_request(
             db_path=db, source="local", recognized_latex=str(i), confidence=0.9,
-            num_components=1, operation="simplify", sympy_solution=str(i),
-            ryacas_solution=str(i), agreement="match", duration_ms=10,
+            num_components=1, operation="simplify", primary_solution=str(i),
+            crosscheck_solution=str(i), agreement="match", duration_ms=10,
             image_bytes=_png_bytes(), max_rows=10,
         )
     with _open(db) as c:
@@ -88,8 +88,8 @@ def test_recovers_from_corrupt_db(tmp_path):
     db.write_bytes(b"not a sqlite database at all")
     activity_log.log_request(
         db_path=db, source="local", recognized_latex="x", confidence=0.9,
-        num_components=1, operation="simplify", sympy_solution="x",
-        ryacas_solution="x", agreement="match", duration_ms=10, image_bytes=_png_bytes(),
+        num_components=1, operation="simplify", primary_solution="x",
+        crosscheck_solution="x", agreement="match", duration_ms=10, image_bytes=_png_bytes(),
     )
     with _open(db) as c:
         n = c.execute("SELECT COUNT(*) FROM requests").fetchone()[0]
@@ -101,6 +101,6 @@ def test_never_raises_on_failure(tmp_path):
     activity_log.log_request(
         db_path=tmp_path / "definitely" / "missing" / "subdir" / "a.db",
         source="local", recognized_latex="x", confidence=0.9, num_components=1,
-        operation="simplify", sympy_solution="x", ryacas_solution="x",
+        operation="simplify", primary_solution="x", crosscheck_solution="x",
         agreement="match", duration_ms=10, image_bytes=_png_bytes(),
     )

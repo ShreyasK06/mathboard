@@ -20,7 +20,17 @@ test_that("solve_with_ryacas returns a valid result for x + 5 = 12", {
   result <- solve_with_ryacas("x + 5 = 12")
   expect_equal(result$status, "success")
   expect_equal(result$operation, "solve")
-  expect_match(result$solution, "7", fixed = TRUE)
+  # Format must match SymPy's plain-value form (not Yacas's "{x==7}" wrapper)
+  # so that the cross-check agreement comparison can succeed.
+  expect_equal(trimws(result$solution), "7")
+  expect_equal(trimws(result$latex_result), "7")
+})
+
+test_that("solve_with_ryacas returns multi-root quadratic in clean form", {
+  result <- solve_with_ryacas("x^2 + 2 = 6")
+  expect_equal(result$status, "success")
+  vals <- sort(trimws(strsplit(result$solution, ",", fixed = TRUE)[[1]]))
+  expect_equal(vals, c("-2", "2"))
 })
 
 test_that("solve_with_ryacas returns a valid result for simplification", {

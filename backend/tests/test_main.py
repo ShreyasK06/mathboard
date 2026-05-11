@@ -49,7 +49,9 @@ def test_convert_happy_path():
     mock_response.text = "x^2 + 1"
 
     with patch.object(main._client.models, "generate_content", return_value=mock_response), \
-         patch.object(main.solver, "solve_expression", return_value=_MOCK_SOLVER_RESULT):
+         patch.object(main.solver, "solve_expression", return_value=_MOCK_SOLVER_RESULT), \
+         patch.object(main.ryacas_client, "cross_solve", return_value=None), \
+         patch.object(main, "solve_with_gemini", return_value=None):
         resp = _client.post("/convert", files={"file": ("b.png", _png_bytes(), "image/png")})
 
     assert resp.status_code == 200
@@ -102,7 +104,9 @@ def test_convert_solution_data_has_operation_label():
     }
 
     with patch.object(main._client.models, "generate_content", return_value=mock_response), \
-         patch.object(main.solver, "solve_expression", return_value=solve_result):
+         patch.object(main.solver, "solve_expression", return_value=solve_result), \
+         patch.object(main.ryacas_client, "cross_solve", return_value=None), \
+         patch.object(main, "solve_with_gemini", return_value=None):
         resp = _client.post("/convert", files={"file": ("b.png", _png_bytes(), "image/png")})
 
     data = resp.json()
@@ -114,7 +118,7 @@ from ml.classifier import ClassifyResult
 
 
 def test_convert_uses_local_when_classifier_accepts():
-    """When the local classifier accepts, Gemini is NOT called and source='local'."""
+    """When the local classifier accepts, Gemini OCR is NOT called and source='local'."""
     accepted = ClassifyResult(
         predicted_latex="x", confidence=0.93, num_components=1, accepted=True
     )
@@ -123,9 +127,12 @@ def test_convert_uses_local_when_classifier_accepts():
         def is_loaded(self): return True
         def classify(self, _): return accepted
 
+    # Stub solve_with_gemini so only the OCR path can hit generate_content;
+    # we want gemini.assert_not_called() to reflect OCR only.
     with patch.object(main, "classifier", FakeClassifier()), \
          patch.object(main._client.models, "generate_content") as gemini, \
-         patch.object(main.solver, "solve_expression", return_value=_MOCK_SOLVER_RESULT):
+         patch.object(main.solver, "solve_expression", return_value=_MOCK_SOLVER_RESULT), \
+         patch.object(main, "solve_with_gemini", return_value=None):
         resp = _client.post("/convert", files={"file": ("b.png", _png_bytes(), "image/png")})
 
     assert resp.status_code == 200
@@ -151,7 +158,9 @@ def test_convert_falls_back_to_gemini_on_low_confidence():
 
     with patch.object(main, "classifier", FakeClassifier()), \
          patch.object(main._client.models, "generate_content", return_value=mock_response), \
-         patch.object(main.solver, "solve_expression", return_value=_MOCK_SOLVER_RESULT):
+         patch.object(main.solver, "solve_expression", return_value=_MOCK_SOLVER_RESULT), \
+         patch.object(main.ryacas_client, "cross_solve", return_value=None), \
+         patch.object(main, "solve_with_gemini", return_value=None):
         resp = _client.post("/convert", files={"file": ("b.png", _png_bytes(), "image/png")})
 
     assert resp.status_code == 200
@@ -172,7 +181,9 @@ def test_convert_falls_back_when_classifier_disabled():
 
     with patch.object(main, "classifier", DisabledClassifier()), \
          patch.object(main._client.models, "generate_content", return_value=mock_response), \
-         patch.object(main.solver, "solve_expression", return_value=_MOCK_SOLVER_RESULT):
+         patch.object(main.solver, "solve_expression", return_value=_MOCK_SOLVER_RESULT), \
+         patch.object(main.ryacas_client, "cross_solve", return_value=None), \
+         patch.object(main, "solve_with_gemini", return_value=None):
         resp = _client.post("/convert", files={"file": ("b.png", _png_bytes(), "image/png")})
 
     assert resp.json()["source"] == "gemini"
@@ -182,14 +193,20 @@ def test_convert_falls_back_when_classifier_disabled():
 from ryacas_client import RyacasResult
 
 
-def test_convert_includes_ryacas_when_available():
-    """When Plumber is reachable and agrees with SymPy, response has agreement='match'."""
-    mock_response = MagicMock()
-    mock_response.text = "x + 5 = 12"
+def _gemini_solve(text: str):
+    """Build a successful GeminiSolveResult for cross-check mocks."""
+    return main.GeminiSolveResult(
+        status="success", solution=text, latex_result=text, error=None
+    )
+
+
+def test_convert_uses_ryacas_as_primary_when_available():
+    """Ryacas drives the displayed answer; Gemini is the cross-check."""
+    mock_ocr = MagicMock(); mock_ocr.text = "x + 5 = 12"
 
     sympy_result = {
         "status": "success", "operation": "solve", "operation_label": "Solving equation",
-        "steps": [], "solution": "7", "latex_result": "7",
+        "steps": ["Detected equation"], "solution": "?", "latex_result": "?",
     }
     ryacas_result = RyacasResult(status="success", solution="7", latex_result="7", error=None)
 
@@ -198,20 +215,24 @@ def test_convert_includes_ryacas_when_available():
         def classify(self, _): return None
 
     with patch.object(main, "classifier", FakeClassifier()), \
-         patch.object(main._client.models, "generate_content", return_value=mock_response), \
+         patch.object(main._client.models, "generate_content", return_value=mock_ocr), \
          patch.object(main.solver, "solve_expression", return_value=sympy_result), \
-         patch.object(main.ryacas_client, "cross_solve", return_value=ryacas_result):
+         patch.object(main.ryacas_client, "cross_solve", return_value=ryacas_result), \
+         patch.object(main, "solve_with_gemini", return_value=_gemini_solve("7")):
         resp = _client.post("/convert", files={"file": ("b.png", _png_bytes(), "image/png")})
 
-    data = resp.json()
-    sd = data["solution_data"]
-    assert sd["ryacas"]["latex_result"] == "7"
+    sd = resp.json()["solution_data"]
+    assert sd["primary_solver"] == "ryacas"
+    assert sd["latex_result"] == "7"            # displayed answer is Ryacas's
+    assert sd["operation_label"] == "Solving equation"  # metadata still from SymPy
+    assert sd["crosscheck"]["solver"] == "gemini"
+    assert sd["crosscheck"]["latex_result"] == "7"
     assert sd["agreement"] == "match"
 
 
-def test_convert_marks_unavailable_when_plumber_down():
-    mock_response = MagicMock()
-    mock_response.text = "x"
+def test_convert_falls_back_to_sympy_when_plumber_down():
+    """If Ryacas is unreachable, the displayed answer is SymPy's."""
+    mock_ocr = MagicMock(); mock_ocr.text = "x"
     sympy_result = {
         "status": "success", "operation": "simplify", "operation_label": "Simplifying",
         "steps": [], "solution": "x", "latex_result": "x",
@@ -222,43 +243,46 @@ def test_convert_marks_unavailable_when_plumber_down():
         def classify(self, _): return None
 
     with patch.object(main, "classifier", FakeClassifier()), \
-         patch.object(main._client.models, "generate_content", return_value=mock_response), \
+         patch.object(main._client.models, "generate_content", return_value=mock_ocr), \
          patch.object(main.solver, "solve_expression", return_value=sympy_result), \
-         patch.object(main.ryacas_client, "cross_solve", return_value=None):
+         patch.object(main.ryacas_client, "cross_solve", return_value=None), \
+         patch.object(main, "solve_with_gemini", return_value=_gemini_solve("x")):
         resp = _client.post("/convert", files={"file": ("b.png", _png_bytes(), "image/png")})
 
     sd = resp.json()["solution_data"]
+    assert sd["primary_solver"] == "sympy"
+    assert sd["latex_result"] == "x"
     assert sd["ryacas"] is None
-    assert sd["agreement"] == "ryacas_unavailable"
+    assert sd["agreement"] == "match"
 
 
-def test_convert_marks_differ_when_solvers_disagree():
-    mock_response = MagicMock()
-    mock_response.text = "x + 5 = 12"
+def test_convert_marks_differ_when_primary_disagrees_with_gemini():
+    mock_ocr = MagicMock(); mock_ocr.text = "x + 5 = 12"
     sympy_result = {
         "status": "success", "operation": "solve", "operation_label": "Solving equation",
-        "steps": [], "solution": "7", "latex_result": "7",
+        "steps": [], "solution": "?", "latex_result": "?",
     }
-    ryacas_result = RyacasResult(status="success", solution="6", latex_result="6", error=None)
+    ryacas_result = RyacasResult(status="success", solution="7", latex_result="7", error=None)
 
     class FakeClassifier:
         def is_loaded(self): return False
         def classify(self, _): return None
 
     with patch.object(main, "classifier", FakeClassifier()), \
-         patch.object(main._client.models, "generate_content", return_value=mock_response), \
+         patch.object(main._client.models, "generate_content", return_value=mock_ocr), \
          patch.object(main.solver, "solve_expression", return_value=sympy_result), \
-         patch.object(main.ryacas_client, "cross_solve", return_value=ryacas_result):
+         patch.object(main.ryacas_client, "cross_solve", return_value=ryacas_result), \
+         patch.object(main, "solve_with_gemini", return_value=_gemini_solve("6")):
         resp = _client.post("/convert", files={"file": ("b.png", _png_bytes(), "image/png")})
 
     sd = resp.json()["solution_data"]
     assert sd["agreement"] == "differ"
-    assert sd["ryacas"]["latex_result"] == "6"
+    assert sd["latex_result"] == "7"             # primary still wins display
+    assert sd["crosscheck"]["latex_result"] == "6"
 
 
-def test_convert_logs_activity_row():
-    mock_response = MagicMock()
-    mock_response.text = "x"
+def test_convert_marks_crosscheck_unavailable_when_gemini_solver_returns_none():
+    mock_ocr = MagicMock(); mock_ocr.text = "x"
     sympy_result = {
         "status": "success", "operation": "simplify", "operation_label": "Simplifying",
         "steps": [], "solution": "x", "latex_result": "x",
@@ -269,9 +293,33 @@ def test_convert_logs_activity_row():
         def classify(self, _): return None
 
     with patch.object(main, "classifier", FakeClassifier()), \
-         patch.object(main._client.models, "generate_content", return_value=mock_response), \
+         patch.object(main._client.models, "generate_content", return_value=mock_ocr), \
          patch.object(main.solver, "solve_expression", return_value=sympy_result), \
          patch.object(main.ryacas_client, "cross_solve", return_value=None), \
+         patch.object(main, "solve_with_gemini", return_value=None):
+        resp = _client.post("/convert", files={"file": ("b.png", _png_bytes(), "image/png")})
+
+    sd = resp.json()["solution_data"]
+    assert sd["crosscheck"] is None
+    assert sd["agreement"] == "crosscheck_unavailable"
+
+
+def test_convert_logs_activity_row():
+    mock_ocr = MagicMock(); mock_ocr.text = "x"
+    sympy_result = {
+        "status": "success", "operation": "simplify", "operation_label": "Simplifying",
+        "steps": [], "solution": "x", "latex_result": "x",
+    }
+
+    class FakeClassifier:
+        def is_loaded(self): return False
+        def classify(self, _): return None
+
+    with patch.object(main, "classifier", FakeClassifier()), \
+         patch.object(main._client.models, "generate_content", return_value=mock_ocr), \
+         patch.object(main.solver, "solve_expression", return_value=sympy_result), \
+         patch.object(main.ryacas_client, "cross_solve", return_value=None), \
+         patch.object(main, "solve_with_gemini", return_value=None), \
          patch.object(main.activity_log, "log_request") as log_mock:
         _client.post("/convert", files={"file": ("b.png", _png_bytes(), "image/png")})
 
@@ -279,4 +327,7 @@ def test_convert_logs_activity_row():
     kwargs = log_mock.call_args.kwargs
     assert kwargs["source"] == "gemini"
     assert kwargs["recognized_latex"] == "x"
-    assert kwargs["agreement"] == "ryacas_unavailable"
+    assert kwargs["primary_solver"] == "sympy"
+    assert kwargs["primary_solution"] == "x"
+    assert kwargs["crosscheck_solution"] is None
+    assert kwargs["agreement"] == "crosscheck_unavailable"
