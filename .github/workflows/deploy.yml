@@ -38,6 +38,8 @@ jobs:
           VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
           VITE_BACKEND_URL: ${{ secrets.VITE_BACKEND_URL }}
         run: npm run build
+      - name: Disable Jekyll
+        run: touch dist/.nojekyll
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
